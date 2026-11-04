@@ -35,3 +35,8 @@ def test_version_matches_family():
 
 def test_trailing_zero_patch_is_same_release():
     assert t.tag("installed ArcGIS Enterprise 11.5.0 then 11.5") == ["11.5"]
+
+
+def test_database_versions_are_not_arcgis_versions():
+    assert t.tag("ArcGIS Server on PostgreSQL 12.2 and Oracle 12.2, portal 11.3") == ["11.3"]
+    assert t.tag("upgrade enterprise geodatabase from postgres version 11.7") == []

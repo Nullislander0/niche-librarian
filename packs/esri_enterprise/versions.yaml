@@ -4,6 +4,9 @@
 pattern: '(?<![\d.])(1[0-2]\.\d(?:\.\d)?|10\.81|10\.91)(?!\.?\d)'
 context: '\b(arcgis|enterprise|portal|server|data ?store|web ?adaptor|esri|version|release|upgrad\w*|install\w*|patch\w*)\b'
 window: 60
+# Database and OS versions overlap ArcGIS numbering (PostgreSQL 12.2, Oracle 12.2,
+# SQL Server 2019 aside). A number directly after one of these terms is not tagged.
+exclude_before: '\b(postgres(ql)?|pg|postgis|oracle|sql ?server|mssql|sde ?client|python|java|jdk|jre|tomcat|iis|windows( server)?|rhel|red ?hat|ubuntu|suse|centos|kubernetes|k8s|node(\.?js)?|chrome|firefox|edge|\.net)\s*(v(ersion)?\.?)?'
 strip_patch_zero: true   # "11.5.0" and "11.5" are the same release
 aliases:
   "10.81": "10.8.1"

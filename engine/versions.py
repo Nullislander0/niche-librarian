@@ -13,6 +13,10 @@ class VersionTagger:
         self.aliases = {str(k): str(v) for k, v in (cfg.get("aliases") or {}).items()}
         self.query_context_required = bool(cfg.get("query_context_required", False))
         self.strip_patch_zero = bool(cfg.get("strip_patch_zero", False))
+        # Numbers right after these terms belong to something else (e.g. "PostgreSQL 12.2").
+        self.exclude_before = re.compile(cfg["exclude_before"] + r"\W{0,3}$", re.I) \
+            if cfg.get("exclude_before") else None
+        self.exclude_window = int(cfg.get("exclude_window", 25))
 
     def _canon(self, v: str) -> str:
         v = self.aliases.get(v, v)
@@ -25,6 +29,8 @@ class VersionTagger:
             return []
         found: list[str] = []
         for m in self.pattern.finditer(text):
+            if self.exclude_before and self.exclude_before.search(text[max(0, m.start() - self.exclude_window):m.start()]):
+                continue
             if need_context and self.context:
                 lo, hi = max(0, m.start() - self.window), m.end() + self.window
                 if not self.context.search(text[lo:hi]):
