@@ -114,3 +114,42 @@ def test_bug_page_fields_and_newest_first():
     assert d.extra["details"] == {"product": "Portal for ArcGIS", "status": "Fixed", "version": "11.3",
                                   "version_fixed": "11.5"}
     assert d.extra["versions"] == ["11.3", "11.5"]
+
+
+def test_removed_pages_are_skipped_not_fatal():
+    from engine.crawl.fetcher import FetchError
+    pack = load_pack("esri_enterprise")
+    src = pack.source("esri_docs")
+    src.options = {**src.options, "sitemaps": ["https://docs.example/sitemap.xml"], "include": ["^https://docs\\.example/"]}
+
+    class Gone(SiteFetcher):
+        def get_text(self, url, params=None, ttl=None):
+            if url.endswith("skip.html"):
+                raise FetchError("HTTP 404", 404)
+            return super().get_text(url, params, ttl)
+
+    docs = list(Parser(CrawlContext(source=src, fetcher=Gone(), state=DictState())).crawl())
+    assert [d.url for d in docs] == ["https://docs.example/en/p/admin/https.html"]
+
+
+def test_fetcher_retries_timeouts(tmp_path, monkeypatch):
+    import urllib.request
+    from engine.crawl import fetcher as fm
+    calls = []
+
+    class Resp:
+        headers = {"Content-Type": "application/json"}
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def read(self): return b'{"ok": 1}'
+
+    def flaky(req, timeout=0):
+        calls.append(1)
+        if len(calls) == 1:
+            raise TimeoutError("The read operation timed out")
+        return Resp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", flaky)
+    monkeypatch.setattr(fm.time, "sleep", lambda s: None)
+    f = fm.Fetcher("ua", tmp_path, min_interval=0, respect_robots=False)
+    assert f.get_json("https://x.example/a") == {"ok": 1} and len(calls) == 2

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import http.client
 import json
 import logging
 import re
@@ -128,13 +129,16 @@ class Fetcher:
                     delay *= 2
                     continue
                 raise FetchError(f"HTTP {e.code} for {url}", e.code, body)
-            except urllib.error.URLError as e:
+            except (OSError, http.client.HTTPException) as e:
+                # URLError, timeouts mid-read, resets, TLS errors, truncated bodies (e.g. the
+                # network dropping when the machine suspends): retry with backoff.
+                reason = getattr(e, "reason", None) or e
                 if attempt < self.max_retries:
-                    log.warning("network error for %s (%s); retrying in %.0fs", host, e.reason, delay)
+                    log.warning("network error for %s (%s); retrying in %.0fs", host, reason, delay)
                     time.sleep(delay)
                     delay *= 2
                     continue
-                raise FetchError(f"network error for {url}: {e.reason}")
+                raise FetchError(f"network error for {url}: {reason}")
         raise FetchError(f"gave up on {url}")
 
     def _check_robots(self, url: str) -> None:

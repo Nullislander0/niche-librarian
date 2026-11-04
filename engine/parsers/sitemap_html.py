@@ -33,6 +33,7 @@ import time
 from datetime import datetime, timezone
 from typing import Iterator
 
+from engine.crawl.fetcher import FetchError
 from engine.parsers.base import CrawlContext, Document
 from engine.parsers.html_md import html_to_markdown
 
@@ -124,7 +125,15 @@ class Parser:
             if seen and now - seen < self.refresh:
                 continue
             self.ctx.check_budget()
-            doc = self._page(url, self.ctx.fetcher.get_text(url, ttl=self.refresh))
+            try:
+                page = self.ctx.fetcher.get_text(url, ttl=self.refresh)
+            except FetchError as e:
+                if e.status not in (404, 410):  # listed in the sitemap but since removed
+                    raise
+                self.ctx.log.warning("gone (HTTP %s), skipping: %s", e.status, url)
+                self.ctx.state.set(f"page:{url}", now)
+                continue
+            doc = self._page(url, page)
             if doc:
                 yield doc
             self.ctx.state.set(f"page:{url}", now)
