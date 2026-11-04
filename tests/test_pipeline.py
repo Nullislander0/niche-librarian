@@ -141,3 +141,36 @@ def test_reindex_unchanged_keeps_chunks(pack):
 
 def test_fts_query_is_safe():
     assert fts_query('what is "11.1" AND (portal)') == '"11 1" OR "portal"'
+
+
+def test_backfill_walks_a_date_cursor(pack):
+    """Two pages: the second request starts from the first page's last creation date."""
+    pages = [
+        {"items": [{"question_id": 1, "title": "a", "creation_date": 100, "last_activity_date": 150},
+                   {"question_id": 2, "title": "b", "creation_date": 200, "last_activity_date": 900}],
+         "has_more": True, "quota_remaining": 200},
+        {"items": [{"question_id": 3, "title": "c", "creation_date": 300, "last_activity_date": 300}],
+         "has_more": False, "quota_remaining": 199},
+        {"items": [], "has_more": False, "quota_remaining": 198},  # next run: incremental
+    ]
+
+    class PagedFetcher(FakeFetcher):
+        def get_json(self, url, params=None, ttl=None):
+            if url.endswith("/questions"):
+                self.network_requests += 1
+                self.calls.append((url, params))
+                return pages.pop(0)
+            return super().get_json(url, params, ttl)
+
+    src = pack.source("gis_se")
+    src.options["tag_tiers"] = [{"tier": 1, "tags": ["t"]}]
+    src.options["fetch_author_profiles"] = False
+    fetcher, state = PagedFetcher(), DictState()
+    docs = list(Parser(CrawlContext(source=src, fetcher=fetcher, state=state)).crawl())
+    assert state["tag:gis:t"] == {"phase": "incremental", "cursor": 900, "watermark": 900}
+    list(Parser(CrawlContext(source=src, fetcher=fetcher, state=state)).crawl())
+    q = [p for u, p in fetcher.calls if u.endswith("/questions")]
+    assert [d.doc_id for d in docs] == ["gis_se:q:1", "gis_se:q:2", "gis_se:q:3"]
+    assert q[0]["min"] is None and q[1]["min"] == 200 and "page" not in q[1]
+    assert q[2]["sort"] == "activity" and q[2]["min"] == 900
+    assert state["tag:gis:t"] == {"phase": "incremental", "cursor": 900, "watermark": 900}

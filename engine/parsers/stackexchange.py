@@ -19,9 +19,10 @@ Options (sources.yaml):
   quota_reserve: 25               # stop when the daily API quota drops below this
 
 Crawl strategy per tag:
-  backfill     sort=creation asc, page by page; resumes from the saved page.
-  incremental  once backfill finishes, sort=activity desc with min=<watermark>
-               so new questions, answers and edits are picked up.
+  backfill     sort=creation asc, walking a creation-date cursor; resumable.
+  incremental  once backfill finishes, sort=activity asc from the last run's
+               watermark, so new questions, answers and edits are picked up.
+  Date cursors rather than page numbers: keyless clients can't go past page 25.
 
 Set STACKEXCHANGE_KEY in the environment to raise the daily quota from ~300
 to 10,000 requests (register an app at stackapps.com). A key is optional.
@@ -29,6 +30,7 @@ to 10,000 requests (register an app at stackapps.com). A key is optional.
 from __future__ import annotations
 
 import html
+import json
 import os
 from typing import Iterator
 
@@ -77,39 +79,41 @@ class Parser:
 
     def _crawl_tag(self, tag: str, filt: str) -> Iterator[Document]:
         key = f"tag:{self.site}:{tag}"
-        st = self.ctx.state.get(key) or {"phase": "backfill", "page": 1, "watermark": 0}
+        st = self.ctx.state.get(key) or {"phase": "backfill", "cursor": 0, "watermark": 0}
 
         if st["phase"] == "backfill":
-            while True:
-                data = self._api("/questions", {
-                    "tagged": tag, "sort": "creation", "order": "asc",
-                    "page": st["page"], "pagesize": 100, "filter": filt,
-                })
-                yield from self._page(data["items"])
-                for q in data["items"]:
-                    st["watermark"] = max(st["watermark"], q.get("last_activity_date", 0))
-                if not data.get("has_more"):
-                    st["phase"] = "incremental"
-                    self.ctx.state.set(key, st)
-                    return
-                st["page"] += 1
-                self.ctx.state.set(key, st)
+            yield from self._walk(tag, filt, key, st, sort="creation", field="creation_date")
+            st["phase"], st["cursor"] = "incremental", st["watermark"]
+            self.ctx.state.set(key, st)
+            return  # incremental starts next run
 
-        # Incremental: everything with activity since the watermark.
-        page, newest = 1, st["watermark"]
+        # Incremental: everything with activity since the previous run.
+        yield from self._walk(tag, filt, key, st, sort="activity", field="last_activity_date", ttl=0)
+        st["cursor"] = st["watermark"]
+        self.ctx.state.set(key, st)
+
+    def _walk(self, tag: str, filt: str, key: str, st: dict, sort: str, field: str,
+              ttl: int | None = None) -> Iterator[Document]:
+        """Page through a tag oldest-first using a date cursor instead of page numbers.
+
+        Keyless clients can't request page > 25, and a cursor also survives new posts
+        arriving mid-crawl. `min` is inclusive, so the boundary item repeats (harmless:
+        indexing is idempotent).
+        """
         while True:
             data = self._api("/questions", {
-                "tagged": tag, "sort": "activity", "order": "desc", "min": st["watermark"],
-                "page": page, "pagesize": 100, "filter": filt,
-            }, ttl=0)
-            yield from self._page(data["items"])
-            for q in data["items"]:
-                newest = max(newest, q.get("last_activity_date", 0))
-            if not data.get("has_more"):
-                break
-            page += 1
-        st["watermark"] = newest
-        self.ctx.state.set(key, st)
+                "tagged": tag, "sort": sort, "order": "asc", "min": st["cursor"] or None,
+                "pagesize": 100, "filter": filt,
+            }, ttl=ttl)
+            items = data["items"]
+            yield from self._page(items)
+            for q in items:
+                st["watermark"] = max(st["watermark"], q.get("last_activity_date", 0))
+            if not data.get("has_more") or not items:
+                return
+            last = items[-1].get(field, 0)
+            st["cursor"] = last if last > st["cursor"] else st["cursor"] + 1
+            self.ctx.state.set(key, st)
 
     def _page(self, questions: list[dict]) -> Iterator[Document]:
         profiles = self._profiles(questions) if self.fetch_profiles else {}
@@ -206,9 +210,14 @@ class Parser:
         try:
             data = self.ctx.fetcher.get_json(API + path, params, ttl=ttl)
         except FetchError as e:
-            if e.status == 400 and '"error_id":502' in e.body.replace(" ", ""):
+            try:
+                err = json.loads(e.body)
+            except ValueError:
+                raise e
+            if err.get("error_id") == 502:
                 raise StopCrawl("Stack Exchange throttle violation; stopping for today")
-            raise
+            raise FetchError(f"API error {err.get('error_id')} {err.get('error_name')}: "
+                             f"{err.get('error_message')}", e.status, e.body)
         if "error_id" in data:
             raise FetchError(f"API error {data['error_id']} {data.get('error_name')}: {data.get('error_message')}")
         if data.get("backoff"):
