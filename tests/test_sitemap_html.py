@@ -66,3 +66,14 @@ def test_heading_trail_prefix_skips_admonitions():
     chunks = chunk_markdown(md, target=600, hard_max=1200)
     assert any(c.startswith("[Upgrade > Back up]") for c in chunks)
     assert not any("Note:]" in c for c in chunks)
+
+
+def test_meta_filter_and_us_dates():
+    from engine.parsers.sitemap_html import _date
+    assert _date("10/03/2025") == _date("2025-10-03")
+    pack = load_pack("esri_enterprise")
+    src = pack.source("esri_docs")
+    src.options = {**src.options, "sitemaps": ["https://docs.example/sitemap.xml"],
+                   "include": ["^https://docs\\.example/en/p/"], "meta_filter": {"version": "^11\\."}}
+    p = Parser(CrawlContext(source=src, fetcher=SiteFetcher(), state=DictState()))
+    assert list(p.crawl()) == [] and p.skipped == 1  # page is 12.1, filter wants 11.x

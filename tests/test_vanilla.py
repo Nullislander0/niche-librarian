@@ -94,3 +94,25 @@ def test_html_to_markdown():
             '<ol><li>one</li><li>two</li></ol><script>x()</script>'
             '<span class="js-embed" data-embedjson="{&quot;url&quot;:&quot;https://e.x/p&quot;,&quot;name&quot;:&quot;Patch&quot;}"><a>ignored</a></span>')
     assert html_to_markdown(html) == "A *b* `c`  \nd\n\n> q1\n>\n> q2\n\n1. one\n2. two\n\n[Patch](https://e.x/p)"
+
+
+def test_vanilla_skips_item_the_api_cannot_serialise():
+    from engine.crawl.fetcher import FetchError
+
+    class Flaky(VanillaFetcher):
+        def get_json(self, url, params=None, ttl=None):
+            self.network_requests += 1
+            self.calls.append((url, params))
+            if url.endswith("/comments") and params["dateInserted"] == ">=1970-01-01T00:00:00Z":
+                raise FetchError("HTTP 400", 400, '{"message": "Validation failed."}')
+            return DISCUSSIONS if url.endswith("/discussions") else []
+
+    pack = load_pack("esri_enterprise")
+    src = pack.source("esri_community")
+    src.options = {**src.options, "base_url": "https://forum.example",
+                   "category_tiers": [{"tier": 1, "categories": [1]}]}
+    f = Flaky()
+    docs = list(Parser(CrawlContext(source=src, fetcher=f, state=DictState())).crawl())
+    sizes = [p["limit"] for u, p in f.calls if u.endswith("/comments")]
+    assert sizes == [500, 100, 20, 4, 1, 500]  # shrink, skip one second, resume
+    assert len(docs) == 1

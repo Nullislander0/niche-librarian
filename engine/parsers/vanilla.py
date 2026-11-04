@@ -24,6 +24,7 @@ import re
 from datetime import datetime, timezone
 from typing import Iterator
 
+from engine.crawl.fetcher import FetchError
 from engine.parsers.base import CrawlContext, Document
 from engine.parsers.html_md import html_to_markdown
 
@@ -62,22 +63,37 @@ class Parser:
         key = f"cat:{category}:{endpoint}"
         st = self.ctx.state.get(key) or {"cursor": 0, "complete": False}
         cursor = max(0, st["cursor"] - self.revisit) if st["complete"] else st["cursor"]
+        size = self.page_size
         while True:
             self.ctx.check_budget()
-            items = self.ctx.fetcher.get_json(f"{self.base}/api/v2/{endpoint}", {
-                "categoryID": category, "sort": "dateInserted", "limit": self.page_size,
-                "dateInserted": f">={_iso(cursor)}", "expand": "insertUser",
-            }, ttl=0 if st["complete"] else None)
+            try:
+                items = self.ctx.fetcher.get_json(f"{self.base}/api/v2/{endpoint}", {
+                    "categoryID": category, "sort": "dateInserted", "limit": size,
+                    "dateInserted": f">={_iso(cursor)}", "expand": "insertUser",
+                }, ttl=0 if st["complete"] else None)
+            except FetchError as e:
+                # The API sometimes fails to serialise one malformed post ("Validation failed").
+                # Shrink the page to isolate it, then step past it by one second.
+                if e.status != 400 or "Validation failed" not in e.body:
+                    raise
+                if size > 1:
+                    size = max(1, size // 5)
+                else:
+                    self.ctx.log.warning("skipping an item the API can't return (%s, %s at %s)",
+                                         endpoint, category, _iso(cursor))
+                    cursor, size = cursor + 1, self.page_size
+                continue
             for item in items:
                 doc = convert(item)
                 if doc:
                     yield doc
-            if len(items) < self.page_size:
+            if len(items) < size:
                 break
             last = _ts(items[-1]["dateInserted"])
             cursor = last if last > cursor else cursor + 1
             st["cursor"] = max(st["cursor"], cursor)
             self.ctx.state.set(key, st)
+            size = self.page_size
         if items:
             st["cursor"] = max(st["cursor"], _ts(items[-1]["dateInserted"]))
         st["complete"] = True

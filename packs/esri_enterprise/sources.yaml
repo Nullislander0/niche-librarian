@@ -97,8 +97,27 @@ sources:
       refresh_days: 30
       kind: page
 
+  - id: esri_kb
+    parser: sitemap_html
+    source_type: kb
+    trust: 0.95
+    options:
+      # Esri technical support articles (error messages, causes, fixes). The sitemap lists
+      # ~7,900 articles for every product; all are read once (kept in the raw cache) and
+      # only those whose <meta name="product"> matches below are indexed.
+      sitemaps: [https://support.esri.com/en-us/knowledge-base/sitemap-articles.xml]
+      include: ['^https://support\.esri\.com/en-us/knowledge-base/']
+      content: {tag: div, class: leftcontent}
+      title_strip: '\s*[|-]\s*Esri Support.*$'
+      date_meta: last-modified
+      meta_filter:
+        product: 'ArcGIS Enterprise|Portal for ArcGIS|ArcGIS Server|Data Store|Web Adaptor|ArcGIS Monitor|GeoEvent|Image Server|Notebook Server|Workflow Manager|Geodatabase|ArcSDE|GeoAnalytics Server|Utility Network|API for Python|REST API|Enterprise SDK'
+      extra_meta: [product, article-type, article-number]
+      refresh_days: 60
+      kind: article
+
   # Planned (not yet implemented):
   #   esri_docs_11x   - 11.x / 10.9.1 docs on enterprise.arcgis.com (needs TOC link-following)
-  #   esri_support    - support.esri.com knowledge base + bug database (sitemaps available)
+  #   esri_bugs       - support.esri.com bug database (~120k pages; needs URL prefiltering)
   #   github          - Esri org issues/discussions via the GitHub API
   #   reddit          - r/gis via the official API (supplemental)

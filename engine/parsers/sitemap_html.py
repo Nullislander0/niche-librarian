@@ -13,6 +13,9 @@ Options (sources.yaml):
   version_meta: version                  # <meta name="version"> -> explicit version tag
   date_meta: last-modified               # <meta name=...> -> post/updated date
   refresh_days: 30                       # re-fetch pages older than this
+  meta_filter: {product: 'Enterprise|Portal'}  # keep a page only if every listed meta tag
+                                         # matches its regex (pages are still fetched once)
+  extra_meta: [product, article-type]    # meta tags copied into extra
   kind: page
 
 Mark the source authoritative by listing its source_type under
@@ -72,10 +75,18 @@ def extract_element(page: str, tag: str, id: str | None = None, cls: str | None 
 def _date(s: str | None) -> int | None:
     if not s:
         return None
+    s = s.strip()
     try:
-        dt = datetime.fromisoformat(s.strip())
+        dt = datetime.fromisoformat(s)
     except ValueError:
-        return None
+        for fmt in ("%m/%d/%Y", "%d %B %Y", "%B %d, %Y"):
+            try:
+                dt = datetime.strptime(s, fmt)
+                break
+            except ValueError:
+                continue
+        else:
+            return None
     return int((dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).timestamp())
 
 
@@ -94,6 +105,9 @@ class Parser:
         self.date_meta = o.get("date_meta")
         self.refresh = int(o.get("refresh_days", 30)) * 86400
         self.kind = o.get("kind", "page")
+        self.meta_filter = {k.lower(): re.compile(v, re.I) for k, v in (o.get("meta_filter") or {}).items()}
+        self.extra_meta = [m.lower() for m in o.get("extra_meta", [])]
+        self.skipped = 0
 
     def crawl(self) -> Iterator[Document]:
         now = time.time()
@@ -128,6 +142,9 @@ class Parser:
 
     def _page(self, url: str, page: str) -> Document | None:
         meta = meta_tags(page)
+        if any(not p.search(meta.get(k, "")) for k, p in self.meta_filter.items()):
+            self.skipped += 1
+            return None
         body = extract_element(page, self.content.get("tag", "main"), self.content.get("id"),
                                self.content.get("class"))
         if body is None:
@@ -145,5 +162,5 @@ class Parser:
             source=self.ctx.source.id, source_type=self.ctx.source.source_type, kind=self.kind,
             url=url, title=title, content_md=md, post_date=date, updated_date=date,
             extra={"versions": versions, "description": meta.get("description"),
-                   "product": meta.get("product")},
+                   **{m: meta.get(m) for m in self.extra_meta or ["product"]}},
         )
