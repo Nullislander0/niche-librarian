@@ -1,0 +1,35 @@
+# Suzuki DR650 pack: builds, mods, maintenance and long-term ownership experience.
+name: Suzuki DR650
+description: >-
+  Suzuki DR650 (DR650SE, 1996 onward): mods, setup, maintenance, parts and long-term
+  ownership experience from riders, mostly forum threads.
+
+agent:
+  good_queries:
+    - "rear shock upgrade for heavier rider on DR650"
+    - "carb mods after installing aftermarket exhaust, still lean"
+    - "IMS vs Clarke large tank fitment"
+  bad_queries:
+    - "dr650"                                 # too vague
+    - "suspension, gearing, seat and tank"    # several topics: one call per topic
+
+crawler:
+  min_interval_seconds: 2.0   # no Crawl-delay for our agent; be gentle anyway
+
+sources:
+  # DRriders.com: blocked by Cloudflare's bot challenge (2026-11-04). Not crawled; ask the admin.
+  # ThumperTalk: no DR650 subforum. Not crawled.
+  - id: advrider
+    parser: xenforo1
+    source_type: forum
+    trust: 0.7
+    options:
+      base_url: https://www.advrider.com/f/
+      post_count_labels: [Oddometer, Messages]
+      mega_threads:
+        # 16,828 pages (~336k posts) as of 2026-11-04: newest pages first, a slice per run.
+        - {thread: threads/the-dr650-thread.135295/, pages_per_run: 2000}
+      tag_pages: [tags/dr650/]
+      forum_scan:
+        - {forum: forums/thumpers.15/, title: '(?i)\bdr\s?-?650|\bdr\s?650|\bdr650s?e?\b', max_pages: 1500}
+      rescan_pages: 5

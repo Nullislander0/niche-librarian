@@ -1,0 +1,44 @@
+# Forum-only pack: no accepted answers or vendor staff. Likes stand in for votes; the
+# ADVrider "Oddometer" (post count) for reputation; join date for account age.
+rrf_k: 20
+candidates: 60
+max_chunks_per_doc: 1
+max_per_thread: 3        # a mega-thread *page* counts as a thread here
+
+reranker:
+  model: Xenova/ms-marco-MiniLM-L-6-v2
+  candidates: 20
+  max_chars: 1000
+  alpha: 0.7
+
+weights:
+  retrieval: 1.5
+  version_exact: 0.15     # model years matter little: the DR650SE barely changed since 1996
+  version_family: 0.05
+  version_mismatch: 0.0
+  recency: 0.1
+  source_trust: 0.1
+  first_hand: 0.35        # "after 8,000 miles..." is the point of this pack
+  author_reputation: 0.15
+  account_age: 0.1
+  votes: 0.2
+
+recency:
+  half_life_days: 1825
+  version_sensitive_terms: [price, available, discontinued, in stock, new model, 2025, 2026]
+
+author:
+  default: {reputation_ceiling: 20000, age_ceiling_years: 15}
+
+votes:
+  ceiling: 30
+
+first_hand_saturation: 3
+first_hand_patterns:
+  - '\b\d[\d,.]*\s?k?\s?(miles|mi|km|kms)\b'                # mileage
+  - '\b(after|since|for)\s+(a\s+)?(\d+|few|couple|several)\s+(years?|months?|seasons?|trips?)\b'
+  - '\bI\s+(installed|fitted|did|put|swapped|replaced|run|ran|rode|used|tried|went with|changed)\b'
+  - '\b(my|our)\s+(dr|bike|pig|build)\b'
+  - '\b(worked|works)\s+(great|well|fine|perfectly)\b|\bwouldn.?t\s+(do|buy)\s+it\s+again\b'
+  - '\b(broke|failed|cracked|leaked|stripped|snapped)\b'
+  - '\b(jet|needle|clip|sprocket|spring rate|preload|sag|torque)\b.{0,30}\d'  # concrete settings
