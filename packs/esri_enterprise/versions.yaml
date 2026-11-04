@@ -1,0 +1,11 @@
+# How to spot ArcGIS Enterprise versions in text.
+# `pattern` group 1 is the version. A match only counts if a `context` term appears
+# within `window` characters, so stray numbers ("10.5 GB", IP addresses) are ignored.
+pattern: '(?<![\d.])(1[0-2]\.\d(?:\.\d)?|10\.81|10\.91)(?!\.?\d)'
+context: '\b(arcgis|enterprise|portal|server|data ?store|web ?adaptor|esri|version|release|upgrad\w*|install\w*|patch\w*)\b'
+window: 60
+aliases:
+  "10.81": "10.8.1"
+  "10.91": "10.9.1"
+# Queries are short, so a bare "11.3" in a query counts without context.
+query_context_required: false

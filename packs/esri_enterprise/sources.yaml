@@ -1,0 +1,37 @@
+# Esri ArcGIS Enterprise pack: architecture, administration, and practitioner experience.
+name: Esri ArcGIS Enterprise
+description: >-
+  ArcGIS Enterprise (Portal, Server, Data Store, Web Adaptor, enterprise geodatabases):
+  architecture, installation, upgrades, administration and troubleshooting, mostly from
+  practitioner Q&A.
+
+# Optional crawler overrides (defaults live in engine/config.py).
+# crawler:
+#   min_interval_seconds: 1.0
+
+sources:
+  - id: gis_se
+    parser: stackexchange
+    source_type: forum
+    trust: 0.7
+    options:
+      site: gis
+      site_url: https://gis.stackexchange.com
+      fetch_author_profiles: true
+      quota_reserve: 25
+      # Crawled tier by tier, tag by tag. Tier 1 is Enterprise-specific; later tiers are broader
+      # and noisier. A question with several tags is fetched once per tag but indexed once.
+      # Tag counts checked 2026-11-04.
+      tag_tiers:
+        - tier: 1
+          tags: [arcgis-enterprise, arcgis-portal, arcgis-web-adaptor, arcgis-data-store]  # 87, 249, 20, 2
+        - tier: 2
+          tags: [arcgis-server]           # 2749
+        - tier: 3
+          tags: [enterprise-geodatabase]  # 1478
+
+  # Planned (not yet implemented):
+  #   esri_community  - Esri Community forums (check for an API/export before scraping)
+  #   esri_docs       - enterprise.arcgis.com docs, release notes, compatibility matrices
+  #   github          - Esri org issues/discussions via the GitHub API
+  #   reddit          - r/gis via the official API (supplemental)

@@ -1,0 +1,50 @@
+# Rerank weights. Each signal is 0..1.
+#   score = retrieval ** weights.retrieval * (1 + sum(signal * weight))
+# so signals scale relevance instead of competing with it.
+candidates: 60          # per retriever (keyword, vector) before fusion
+rrf_k: 20               # lower = steeper drop-off between retrieval ranks
+max_chunks_per_doc: 1
+
+weights:
+  retrieval: 1.5         # exponent: higher = relevance matters more vs. quality signals
+  version_exact: 0.35     # result mentions the version asked about
+  version_family: 0.15    # same major version (11.x vs 11.x)
+  version_mismatch: -0.2  # result is clearly about a different version
+  recency: 0.15           # only when the query is version-sensitive (see below)
+  source_trust: 0.15      # per-source `trust` in sources.yaml
+  accepted_answer: 0.25
+  top_voted: 0.1
+  vendor_staff: 0.2
+  first_hand: 0.2         # error text, logs, "this fixed it"
+  author_reputation: 0.1
+  account_age: 0.05
+  votes: 0.1
+
+recency:
+  half_life_days: 730
+  # Recency counts only if the query names a version or contains one of these.
+  version_sensitive_terms:
+    [upgrade, upgrading, install, compatib, support, certificate, release, patch, deprecat,
+     migrat, python, java, tls, "windows server", "sql server", postgres, kubernetes, "latest"]
+
+author:
+  default: {reputation_ceiling: 10000, age_ceiling_years: 8}
+  per_source:
+    gis_se: {reputation_ceiling: 25000, age_ceiling_years: 10}
+
+votes:
+  ceiling: 50
+
+first_hand_saturation: 3
+first_hand_patterns:
+  - '\berror\b[\s:#]*\d{5,6}\b'                 # ArcGIS error codes
+  - 'Traceback \(most recent call last\)'
+  - '\b(SEVERE|WARNING|ERROR)\b.{0,100}\b(code|machine|server)\b'
+  - '\b(this|that|which) (fixed|solved|resolved)\b'
+  - '\b(fixed|solved|resolved) (it|the issue|the problem|my issue|our issue)\b'
+  - '\bworked for (me|us)\b'
+  - '\b(in|on) (our|my) (environment|deployment|site|server|machine|setup|test)\b'
+  - '\bwe (had|saw|hit|ran into|experienced|upgraded|migrated)\b'
+  - '\bI (had|ran into|tested|confirmed|verified|resolved|upgraded)\b'
+  - '^(```|~~~|    \S)'                          # code or log block
+  - '\bBUG-\d{6}\b|\besri (technical )?support\b'

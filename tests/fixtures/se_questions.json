@@ -1,0 +1,38 @@
+{
+  "items": [
+    {
+      "question_id": 1001,
+      "title": "Portal federation fails after upgrade to Enterprise 11.1",
+      "link": "https://gis.stackexchange.com/questions/1001/example",
+      "body_markdown": "After upgrading ArcGIS Enterprise from 10.9.1 to 11.1 federation fails with error 500 &amp; a token message.\n\n```\nSEVERE: Failed to federate server. code 500\n```",
+      "creation_date": 1690000000,
+      "last_activity_date": 1690500000,
+      "score": 4,
+      "tags": ["arcgis-enterprise", "arcgis-portal"],
+      "owner": {"user_id": 11, "display_name": "Synthetic Asker", "reputation": 120, "user_type": "registered"},
+      "answer_count": 2,
+      "view_count": 300,
+      "is_answered": true,
+      "answers": [
+        {
+          "answer_id": 2001,
+          "body_markdown": "Re-import the certificate into the Web Adaptor and restart. This fixed it in our environment.",
+          "creation_date": 1690100000, "last_activity_date": 1690100000,
+          "score": 7, "is_accepted": true,
+          "owner": {"user_id": 22, "display_name": "Synthetic Admin", "reputation": 15000, "user_type": "registered"},
+          "link": "https://gis.stackexchange.com/a/2001"
+        },
+        {
+          "answer_id": 2002,
+          "body_markdown": "Check the Portal admin URL.",
+          "creation_date": 1690200000, "last_activity_date": 1690200000,
+          "score": 1, "is_accepted": false,
+          "owner": {"display_name": "anon", "user_type": "does_not_exist"}
+        }
+      ]
+    }
+  ],
+  "has_more": false,
+  "quota_max": 300,
+  "quota_remaining": 250
+}
