@@ -81,7 +81,10 @@ Source, URL, stable chunk ID, title, post date, product version tags, author, au
 - Vector store: sqlite-vec, in the same SQLite file as FTS5 (one .db per pack under data/).
 - Embeddings: local Ollama, nomic-embed-text (768-dim).
 - Ranking: retrieval ** w * (1 + sum of signal boosts), so quality signals scale relevance rather than replace it.
-- Stack Exchange runs keyless for now (~300 requests/day); the crawl pauses and resumes the next day.
+- Stack Exchange uses a registered app key (STACKEXCHANGE_KEY, kept out of the repo): 10,000 requests/day.
+- robots.txt policy (decided 2026-11-04): obey the rules that address our user agent or `*`, including any
+  Crawl-delay. Rules that name other crawlers (e.g. ClaudeBot, GPTBot) are not read as applying to us. A
+  bot challenge, CAPTCHA, 401/403, or login wall is a block: stop and report, never work around it.
 
 ## Open items
 
