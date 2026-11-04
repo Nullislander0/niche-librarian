@@ -3,6 +3,7 @@
 A parser module defines a class named `Parser`:
 
     class Parser:
+        POSITION_KEY_PREFIXES = ("cursor",)  # state keys holding crawl position (reset on rebuild)
         def __init__(self, ctx: CrawlContext): ...
         def crawl(self) -> Iterator[Document]: ...
 

@@ -5,8 +5,8 @@ the documented read endpoints, and stops if the site starts refusing them.
 
 Options (sources.yaml):
   base_url: https://community.example.com
-  category_tiers:                   # crawled in order
-    - {tier: 1, categories: [739, 1440]}
+  category_tiers:                   # crawled in order; ids or {id, name}
+    - {tier: 1, categories: [{id: 739, name: Questions}, 1440]}
   page_size: 500                    # API max per request
   revisit_days: 30                  # each run re-reads this window to catch accepted
                                     # answers and votes that changed after indexing
@@ -37,6 +37,8 @@ def _iso(ts: int) -> str:
 
 
 class Parser:
+    POSITION_KEY_PREFIXES = ("cat:",)  # crawl positions; a rebuild resets only these
+
     def __init__(self, ctx: CrawlContext):
         self.ctx = ctx
         o = ctx.options
@@ -51,6 +53,7 @@ class Parser:
     def crawl(self) -> Iterator[Document]:
         for tier in self.tiers:
             for cat in tier["categories"]:
+                cat = cat["id"] if isinstance(cat, dict) else cat
                 self.ctx.log.info("tier %s category %s", tier.get("tier"), cat)
                 yield from self._walk(cat, "discussions", self._discussion)
                 yield from self._walk(cat, "comments", self._comment)

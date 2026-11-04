@@ -8,7 +8,8 @@ from engine.config import EMBEDDING, Pack
 from engine.index.embed import EmbeddingUnavailable, OllamaEmbedder
 from engine.index.store import Filters, Store
 from engine.rank.rerank import Ranker, rrf
-from engine.versions import VersionTagger
+from engine.synonyms import Synonyms
+from engine.versions import VersionTagger, version_key
 
 SNIPPET_CHARS = 280
 
@@ -28,6 +29,11 @@ def fmt_date(ts: int | None) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d") if ts else "unknown"
 
 
+def tokens(text: str | None) -> int:
+    """Rough token estimate (~4 characters per token) so agents can budget context."""
+    return (len(text or "") + 3) // 4
+
+
 def snippet(text: str, query: str, n: int = SNIPPET_CHARS) -> str:
     flat = re.sub(r"\s+", " ", text).strip()
     terms = [t for t in re.findall(r"\w{3,}", query.lower())]
@@ -45,6 +51,7 @@ class Searcher:
         self.embedder = embedder if embedder is not None else OllamaEmbedder.from_settings(EMBEDDING)
         self.tagger = VersionTagger(pack.versions)
         self.ranker = Ranker(pack.ranking, {s.id: s.trust for s in pack.sources})
+        self.synonyms = Synonyms(pack.synonyms)
 
     def search(self, query: str, limit: int = 10, version: str | None = None, version_mode: str = "boost",
                date_from: str | None = None, date_to: str | None = None, source_type: str | None = None,
@@ -55,7 +62,8 @@ class Searcher:
         query_versions = [version] if version else self.tagger.detect_query(query)
         k = self.ranker.candidates
 
-        lists = [self.store.fts_search(query, filters, k)]
+        expansions = self.synonyms.expand(query)
+        lists = [self.store.fts_search(query, filters, k, expansions)]
         mode = "keyword"
         if self.embedder and self.embedder.available():
             try:
@@ -82,11 +90,13 @@ class Searcher:
                 "flags": [f for f in ("accepted", "top_voted", "vendor_staff") if c.get(f"is_{f}")]
                 + (["expert"] if (c.get("extra") or {}).get("recognized_expert") else []),
                 "snippet": snippet(c["text"], query),
+                "tokens": {"chunk": tokens(c["text"]), "document": tokens(c["content_md"])},
             }
             if explain:
                 r["explain"] = c["explain"]
             results.append(r)
-        return {"query": query, "mode": mode, "query_versions": query_versions, "results": results}
+        return {"query": query, "mode": mode, "query_versions": query_versions,
+                "expanded_with": expansions, "results": results}
 
     def fetch(self, chunk_id: str, scope: str = "document") -> str | None:
         """Full text as markdown. scope: chunk | document | thread."""
@@ -100,8 +110,51 @@ class Searcher:
         if scope == "thread":
             root = doc["parent_id"] or doc["doc_id"]
             parts = [_render(d) for d in self.store.get_thread(root)]
-            return f"<!-- thread {root}; requested {chunk_id} -->\n\n" + "\n\n---\n\n".join(parts)
+            body = "\n\n---\n\n".join(parts)
+            return f"<!-- thread {root}; {len(parts)} posts; ~{tokens(body)} tokens; requested {chunk_id} -->\n\n" + body
         return _render(doc, chunk_id)
+
+    def outline(self, source: str | None = None) -> str:
+        """A map of what the index holds, for an agent to read before searching."""
+        db = self.store.db
+        names = {}
+        for s in self.pack.sources:
+            for tier in s.options.get("category_tiers", []):
+                for c in tier.get("categories", []):
+                    if isinstance(c, dict):
+                        names[(s.id, str(c["id"]))] = c.get("name", str(c["id"]))
+        lines = [f"# {self.pack.name}", self.pack.description.strip(), ""]
+        for s in self.pack.sources:
+            if source and s.id != source:
+                continue
+            row = db.execute("SELECT COUNT(*), MIN(post_date), MAX(post_date) FROM documents WHERE source=?",
+                             (s.id,)).fetchone()
+            if not row[0]:
+                continue
+            kinds = ", ".join(f"{k} {n:,}" for k, n in db.execute(
+                "SELECT kind, COUNT(*) FROM documents WHERE source=? GROUP BY kind ORDER BY 2 DESC", (s.id,)))
+            lines.append(f"## {s.id} ({s.source_type}, trust {s.trust}): {row[0]:,} posts, "
+                         f"{fmt_date(row[1])} to {fmt_date(row[2])}")
+            lines.append(f"- kinds: {kinds}")
+            cats = db.execute("SELECT json_extract(extra,'$.category_id') c, COUNT(*) FROM documents "
+                              "WHERE source=? AND c IS NOT NULL GROUP BY c ORDER BY 2 DESC", (s.id,)).fetchall()
+            if cats:
+                lines.append("- boards: " + "; ".join(f"{names.get((s.id, str(c)), c)} {n:,}" for c, n in cats))
+            tags = db.execute("SELECT t.value, COUNT(*) FROM documents d, json_each(d.tags) t "
+                              "WHERE d.source=? AND d.parent_id IS NULL GROUP BY t.value ORDER BY 2 DESC LIMIT 15",
+                              (s.id,)).fetchall()
+            if tags:
+                lines.append("- top tags (threads): " + ", ".join(f"{t} {n:,}" for t, n in tags))
+            lines.append("")
+        vers = db.execute("SELECT v.value, COUNT(*), MAX(d.post_date) FROM documents d, json_each(d.version_tags) v "
+                          + ("WHERE d.source=? " if source else "") + "GROUP BY v.value",
+                          (source,) if source else ()).fetchall()
+        if vers:
+            lines.append("## Version coverage (posts mentioning each version; newest post)")
+            for v, n, last in sorted(vers, key=lambda r: version_key(r[0]), reverse=True):
+                if n >= 20:
+                    lines.append(f"- {v}: {n:,} (latest {fmt_date(last)})")
+        return "\n".join(lines)
 
     def info(self) -> dict:
         s = self.store.stats()

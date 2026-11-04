@@ -53,13 +53,24 @@ ollama pull nomic-embed-text
 .venv/bin/librarian crawl                    # all enabled sources in the default pack
 .venv/bin/librarian crawl --max-requests 20  # cap network requests per source this run
 .venv/bin/librarian stats
+.venv/bin/librarian outline                  # what the index covers: sources, boards, tags, versions
 .venv/bin/librarian search "federation fails after upgrade" --version 11.3 --explain
 .venv/bin/librarian fetch "gis_se:a:12345#c0" --scope thread
 ```
 
 Crawls are incremental and resumable. Each source saves its position, so if a run stops
-(request budget, API quota, Ctrl-C), the next run continues from that point. Responses
-are cached in `data/cache/` for a day.
+(request budget, API quota, Ctrl-C), the next run continues from that point.
+
+Every raw API response is kept in `data/cache/`. It counts as fresh for a day, and is
+never deleted. That allows rebuilding without the network:
+
+```bash
+.venv/bin/librarian rebuild   # re-parse saved responses after changing a parser or chunking
+.venv/bin/librarian retag     # recompute version tags after editing versions.yaml (seconds)
+```
+
+`rebuild` replays from the start, using throwaway crawl state, so your real resume points
+stay untouched. Unchanged posts keep their embeddings.
 
 **Stack Exchange quota.** Without a key, the API allows about 300 requests per IP per day.
 The crawler stops when fewer than 25 remain, and you rerun it the next day. To get 10,000
@@ -105,7 +116,8 @@ Tools:
 
 | Tool | What it returns |
 |---|---|
-| `search(query, limit, version, version_mode, date_from, date_to, source_type, source, explain)` | Compact results: chunk_id, date, versions, source, flags, score, URL, snippet |
+| `search(query, limit, version, version_mode, date_from, date_to, source_type, source, explain)` | Compact results: chunk_id, date, versions, source, flags, score, approximate token count, URL, snippet |
+| `outline(source)` | Map of the index (sources, boards, tags, date ranges, version coverage). Read this first |
 | `fetch(chunk_id, scope)` | Full markdown with citation metadata. `scope` is `chunk`, `document` or `thread` |
 | `index_info()` | Sources, counts, date ranges, version tag counts |
 
@@ -183,7 +195,13 @@ Rules for parsers:
 Add a synthetic fixture under `tests/fixtures/`, written by hand rather than copied from
 crawled content, and a test modelled on `tests/test_pipeline.py`.
 
-### 4. Tune ranking
+### 4. Synonyms
+
+`packs/<pack>/synonyms.yaml` lists equivalent terms: renames, abbreviations and spellings,
+e.g. `[arcgis server, ags]`. If a query contains one term from a group, keyword search also
+looks for the others. Search output shows which terms were added ("also searched").
+
+### 5. Tune ranking
 
 Use `librarian search "..." --explain` to see each signal's contribution, then adjust
 `ranking.yaml`. Per-source trust is set in `sources.yaml`.
@@ -205,6 +223,9 @@ engine/
   crawl/fetcher.py      polite HTTP: robots.txt, throttle, cache, block detection
   parsers/base.py       Document, CrawlContext, parser loading
   parsers/stackexchange.py   worked example (official API)
+  parsers/vanilla.py    Vanilla Forums API v2 (Esri Community)
+  parsers/html_md.py    stdlib HTML -> markdown
+  synonyms.py           query expansion from synonyms.yaml
   index/                store (FTS5 + sqlite-vec), chunking, Ollama embeddings
   rank/rerank.py        RRF fusion + pack-driven rerank
   versions.py           version tagging from versions.yaml
@@ -213,6 +234,6 @@ engine/
   mcp_server/server.py  MCP tools
   cli.py                `librarian` command
 packs/esri_enterprise/
-  sources.yaml  versions.yaml  ranking.yaml  parsers/
+  sources.yaml  versions.yaml  ranking.yaml  synonyms.yaml  parsers/
 tests/
 ```

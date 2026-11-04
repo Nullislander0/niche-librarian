@@ -4,6 +4,7 @@ A pack is a folder under packs/ with:
   sources.yaml   pack metadata + the source list
   ranking.yaml   rerank weights and signal patterns
   versions.yaml  how to recognise product versions in text
+  synonyms.yaml  equivalent terms for keyword search (optional)
   parsers/       optional site-specific parser overrides
 """
 from __future__ import annotations
@@ -58,6 +59,7 @@ class Pack:
     ranking: dict
     versions: dict
     crawler: dict
+    synonyms: list = field(default_factory=list)
 
     @property
     def db_path(self) -> Path:
@@ -114,5 +116,6 @@ def load_pack(pack_id: str) -> Pack:
         sources=sources,
         ranking=_read_yaml(path / "ranking.yaml"),
         versions=_read_yaml(path / "versions.yaml"),
+        synonyms=_read_yaml(path / "synonyms.yaml").get("groups", []),
         crawler={**CRAWLER, **(meta.get("crawler") or {})},
     )

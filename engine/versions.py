@@ -12,9 +12,13 @@ class VersionTagger:
         self.window = int(cfg.get("window", 60))
         self.aliases = {str(k): str(v) for k, v in (cfg.get("aliases") or {}).items()}
         self.query_context_required = bool(cfg.get("query_context_required", False))
+        self.strip_patch_zero = bool(cfg.get("strip_patch_zero", False))
 
     def _canon(self, v: str) -> str:
-        return self.aliases.get(v, v)
+        v = self.aliases.get(v, v)
+        if self.strip_patch_zero and v.count(".") == 2 and v.endswith(".0"):
+            v = v[:-2]  # 11.5.0 -> 11.5
+        return v
 
     def _find(self, text: str, need_context: bool) -> list[str]:
         if not self.pattern or not text:

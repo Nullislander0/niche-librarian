@@ -31,3 +31,7 @@ def test_version_matches_family():
     assert version_matches("11.3", "11")
     assert version_matches("10.9.1", "10.9")
     assert not version_matches("10.9.1", "10.8")
+
+
+def test_trailing_zero_patch_is_same_release():
+    assert t.tag("installed ArcGIS Enterprise 11.5.0 then 11.5") == ["11.5"]

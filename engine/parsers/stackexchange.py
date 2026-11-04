@@ -57,6 +57,8 @@ FILTER_FIELDS = [
 
 
 class Parser:
+    POSITION_KEY_PREFIXES = ("tag:",)  # crawl positions; a rebuild resets only these
+
     def __init__(self, ctx: CrawlContext):
         self.ctx = ctx
         opts = ctx.options

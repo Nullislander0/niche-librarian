@@ -18,10 +18,13 @@ def format_results(res: dict) -> str:
     head = f"{len(res['results'])} results for {res['query']!r} (mode: {res['mode']}"
     if res["query_versions"]:
         head += f"; version context: {', '.join(res['query_versions'])}"
+    if res.get("expanded_with"):
+        head += f"; also searched: {', '.join(res['expanded_with'])}"
     lines = [head + ")"]
     for i, r in enumerate(res["results"], 1):
         meta = [r["date"], f"v {','.join(r['versions'])}" if r["versions"] else "v ?",
-                f"{r['source']}/{r['kind']}", *r["flags"], f"score {r['score']}"]
+                f"{r['source']}/{r['kind']}", *r["flags"], f"score {r['score']}",
+                f"~{r['tokens']['document']} tok"]
         lines.append(f"\n[{i}] {r['chunk_id']}  |  {'  |  '.join(meta)}\n    {r['title']}\n"
                      f"    {r['url']}\n    {r['snippet']}")
         if "explain" in r:
@@ -37,7 +40,10 @@ def build_server(pack_id: str) -> MCPServer:
         name=f"librarian-{pack.id}",
         instructions=(
             f"Local search index: {pack.name}. {pack.description} "
-            "Use `search` to find candidate passages, then `fetch` with a chunk_id to read the full text. "
+            "Call `outline` once to see what it covers. Use `search` to find candidate passages, then `fetch` "
+            "with a chunk_id to read the full text (scope='thread' for the whole discussion) before answering. "
+            "Forum advice varies in quality: prefer accepted answers, vendor staff, and posts matching the "
+            "user's version; say when sources disagree or when nothing relevant was found. "
             "Cite results by chunk_id and URL. Mention a product version in the query (or pass `version`) "
             "to rank matching versions higher."
         ),
@@ -79,6 +85,17 @@ def build_server(pack_id: str) -> MCPServer:
         with lock:
             text = searcher.fetch(chunk_id, scope)
         return text if text is not None else f"No document for {chunk_id!r}."
+
+    @server.tool()
+    def outline(source: str | None = None) -> str:
+        """Map of the index: sources, boards/tags, date ranges and version coverage.
+        Read this first to learn what the index can answer and which terms and versions it covers.
+
+        Args:
+            source: limit to one source id.
+        """
+        with lock:
+            return searcher.outline(source)
 
     @server.tool()
     def index_info() -> str:

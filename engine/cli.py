@@ -23,6 +23,11 @@ def main(argv: list[str] | None = None) -> None:
     c.add_argument("--max-requests", type=int, help="network request budget per source for this run")
     c.add_argument("--no-embed", action="store_true", help="skip embedding new chunks")
 
+    r = sub.add_parser("rebuild", parents=[common], help="re-parse saved API responses (no network)")
+    r.add_argument("--source", action="append", help="only this source id (repeatable)")
+
+    sub.add_parser("retag", parents=[common], help="recompute version tags after editing versions.yaml")
+
     e = sub.add_parser("embed", parents=[common], help="embed chunks that have no vector yet")
     e.add_argument("--reset", action="store_true", help="drop all vectors first (after changing model)")
 
@@ -43,6 +48,8 @@ def main(argv: list[str] | None = None) -> None:
     f.add_argument("--scope", choices=["chunk", "document", "thread"], default="document")
 
     sub.add_parser("stats", parents=[common], help="index statistics")
+    o = sub.add_parser("outline", parents=[common], help="what the index covers")
+    o.add_argument("--source")
     sub.add_parser("serve", parents=[common], help="run the MCP server on stdio")
 
     a = p.parse_args(argv)
@@ -58,6 +65,15 @@ def main(argv: list[str] | None = None) -> None:
     if a.cmd == "crawl":
         from engine.indexer import crawl
         print(json.dumps(crawl(pack, a.source, a.max_requests, embed=not a.no_embed), indent=2))
+    elif a.cmd == "rebuild":
+        from engine.indexer import crawl
+        print(json.dumps(crawl(pack, a.source, offline=True), indent=2))
+    elif a.cmd == "retag":
+        from engine.indexer import retag
+        print(json.dumps(retag(pack), indent=2))
+    elif a.cmd == "outline":
+        from engine.search import Searcher
+        print(Searcher(pack).outline(a.source))
     elif a.cmd == "embed":
         from engine.indexer import embed_missing, open_store
         store = open_store(pack, reset_embeddings=a.reset)

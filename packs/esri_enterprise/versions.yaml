@@ -4,6 +4,7 @@
 pattern: '(?<![\d.])(1[0-2]\.\d(?:\.\d)?|10\.81|10\.91)(?!\.?\d)'
 context: '\b(arcgis|enterprise|portal|server|data ?store|web ?adaptor|esri|version|release|upgrad\w*|install\w*|patch\w*)\b'
 window: 60
+strip_patch_zero: true   # "11.5.0" and "11.5" are the same release
 aliases:
   "10.81": "10.8.1"
   "10.91": "10.9.1"

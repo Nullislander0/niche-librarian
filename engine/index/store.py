@@ -92,8 +92,9 @@ class Filters:
         return (" AND ".join(where) or "1"), args
 
 
-def fts_query(text: str) -> str:
-    """Turn free text into a safe FTS5 OR-query. Dotted tokens (versions) become phrases."""
+def fts_query(text: str, extra_phrases: list[str] | None = None) -> str:
+    """Turn free text into a safe FTS5 OR-query. Dotted tokens (versions) become phrases;
+    extra_phrases (e.g. synonym expansions) are added as whole phrases."""
     terms = []
     for tok in re.findall(r"[\w][\w.\-]*", text.lower()):
         tok = tok.strip(".-")
@@ -103,6 +104,10 @@ def fts_query(text: str) -> str:
         phrase = " ".join(parts)
         if phrase and f'"{phrase}"' not in terms:
             terms.append(f'"{phrase}"')
+    for p in extra_phrases or []:
+        words = " ".join(re.findall(r"\w+", p.lower()))
+        if words and f'"{words}"' not in terms:
+            terms.append(f'"{words}"')
     return " OR ".join(terms)
 
 
@@ -205,8 +210,8 @@ class Store:
 
     # -- read -------------------------------------------------------------
 
-    def fts_search(self, query: str, filters: Filters, k: int) -> list[int]:
-        q = fts_query(query)
+    def fts_search(self, query: str, filters: Filters, k: int, extra_phrases: list[str] | None = None) -> list[int]:
+        q = fts_query(query, extra_phrases)
         if not q:
             return []
         where, args = filters.sql()
@@ -296,6 +301,10 @@ class SourceState:
         r = self.store.db.execute("SELECT value FROM crawl_state WHERE source=? AND key=?",
                                   (self.source, key)).fetchone()
         return json.loads(r[0]) if r else default
+
+    def items(self) -> list[tuple[str, object]]:
+        return [(k, json.loads(v)) for k, v in self.store.db.execute(
+            "SELECT key, value FROM crawl_state WHERE source=?", (self.source,))]
 
     def set(self, key: str, value) -> None:
         self.store.db.execute("INSERT OR REPLACE INTO crawl_state VALUES (?,?,?)",

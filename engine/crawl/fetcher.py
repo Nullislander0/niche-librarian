@@ -35,6 +35,10 @@ class BlockedError(FetchError):
     """The site refused the crawler. Stop and report; do not work around it."""
 
 
+class CacheMiss(FetchError):
+    """Offline mode: the response isn't in the local cache."""
+
+
 class Fetcher:
     def __init__(
         self,
@@ -45,6 +49,7 @@ class Fetcher:
         timeout: int = 30,
         max_retries: int = 3,
         respect_robots: bool = True,
+        offline: bool = False,
     ):
         self.user_agent = user_agent
         self.cache_dir = Path(cache_dir)
@@ -53,6 +58,7 @@ class Fetcher:
         self.timeout = timeout
         self.max_retries = max_retries
         self.respect_robots = respect_robots
+        self.offline = offline  # replay from cache only; never touch the network
         self.network_requests = 0
         self._next_allowed: dict[str, float] = {}
         self._host_interval: dict[str, float] = {}
@@ -63,6 +69,11 @@ class Fetcher:
     def get_text(self, url: str, params: dict | None = None, ttl: int | None = None) -> str:
         full = build_url(url, params)
         ttl = self.cache_ttl if ttl is None else ttl
+        if self.offline:
+            cached = self._cache_read(full, float("inf"))
+            if cached is None:
+                raise CacheMiss(f"not in cache: {full}")
+            return cached
         if ttl > 0:
             cached = self._cache_read(full, ttl)
             if cached is not None:

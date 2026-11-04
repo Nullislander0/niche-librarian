@@ -45,22 +45,22 @@ sources:
       category_tiers:
         - tier: 1   # ArcGIS Enterprise boards
           categories:
-            - 739    # Enterprise questions (9,916)
-            - 1440   # Enterprise Portal (4,335)
-            - 1745   # High availability / disaster recovery (173)
-            - 2074   # Publishing and managing services (382)
-            - 734    # Enterprise in the cloud (257)
-            - 736    # Extensibility questions (135)
-            - 733    # Enterprise blog (98)
-            - 735    # Enterprise documentation feedback (39)
+            - {id: 739, name: Enterprise questions}  # 9,916
+            - {id: 1440, name: Enterprise Portal}  # 4,335
+            - {id: 1745, name: High availability / disaster recovery}  # 173
+            - {id: 2074, name: Publishing and managing services}  # 382
+            - {id: 734, name: Enterprise in the cloud}  # 257
+            - {id: 736, name: Extensibility questions}  # 135
+            - {id: 733, name: Enterprise blog}  # 98
+            - {id: 735, name: Enterprise documentation feedback}  # 39
         - tier: 2   # adjacent products
           categories:
-            - 1635   # Geodatabase questions (2,071)
-            - 79     # ArcGIS Monitor (1,000)
-            - 1030   # ArcGIS REST API questions (1,821)
+            - {id: 1635, name: Geodatabase questions}  # 2,071
+            - {id: 79, name: ArcGIS Monitor}  # 1,000
+            - {id: 1030, name: ArcGIS REST API questions}  # 1,821
         - tier: 3
           categories:
-            - 737    # Enterprise ideas (1,523): feature requests, useful for "is this supported?"
+            - {id: 737, name: Enterprise ideas}  # 1,523: feature requests, useful for "is this supported?"
 
   # Planned (not yet implemented):
   #   esri_docs       - enterprise.arcgis.com docs, release notes, compatibility matrices

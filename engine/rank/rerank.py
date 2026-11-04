@@ -52,6 +52,7 @@ class Ranker:
         self.rrf_k = int(cfg.get("rrf_k", 60))
         self.candidates = int(cfg.get("candidates", 60))
         self.max_chunks_per_doc = int(cfg.get("max_chunks_per_doc", 1))
+        self.max_per_thread = int(cfg.get("max_per_thread", 2))
         rec = cfg.get("recency") or {}
         self.half_life = float(rec.get("half_life_days", 730))
         self.sensitive = [t.lower() for t in rec.get("version_sensitive_terms", [])]
@@ -116,12 +117,15 @@ class Ranker:
             if explain:
                 c["explain"] = {"retrieval": round(retrieval, 3), **{k: round(v, 3) for k, v in sig.items()}}
         candidates.sort(key=lambda c: c["score_total"], reverse=True)
-        out, per_doc = [], {}
+        out, per_doc, per_thread = [], {}, {}
         for c in candidates:
             n = per_doc.get(c["doc_id"], 0)
-            if n >= self.max_chunks_per_doc:
+            thread = c.get("parent_id") or c["doc_id"]
+            t = per_thread.get(thread, 0)
+            if n >= self.max_chunks_per_doc or t >= self.max_per_thread:
                 continue
             per_doc[c["doc_id"]] = n + 1
+            per_thread[thread] = t + 1
             out.append(c)
             if len(out) >= limit:
                 break
