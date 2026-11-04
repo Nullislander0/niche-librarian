@@ -1,0 +1,149 @@
+"""Documentation sites listed in an XML sitemap: one Document per page.
+
+For vendor docs, release notes and other static pages that have no API. Pages are
+found only through the site's own sitemap (no link-following), filtered by URL
+patterns, and re-fetched only after `refresh_days`.
+
+Options (sources.yaml):
+  sitemaps: [https://docs.example.com/en/product/sitemap.xml]   # sitemap or sitemap index
+  include: ['^https://docs\\.example\\.com/en/product/']         # regexes; all if empty
+  exclude: ['/release-notes/archive/']
+  content: {tag: article, id: main}      # element holding the page body (or class:)
+  title_strip: ' \\| .*documentation$'    # regex removed from the page title
+  version_meta: version                  # <meta name="version"> -> explicit version tag
+  date_meta: last-modified               # <meta name=...> -> post/updated date
+  refresh_days: 30                       # re-fetch pages older than this
+  kind: page
+
+Mark the source authoritative by listing its source_type under
+`authoritative_source_types` in ranking.yaml.
+"""
+from __future__ import annotations
+
+import html
+import re
+import time
+from datetime import datetime, timezone
+from typing import Iterator
+
+from engine.parsers.base import CrawlContext, Document
+from engine.parsers.html_md import html_to_markdown
+
+_LOC = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>")
+_META = re.compile(r"<meta\s+[^>]*>", re.I)
+_ATTR = re.compile(r'([\w:-]+)\s*=\s*"([^"]*)"')
+
+
+def meta_tags(page: str) -> dict[str, str]:
+    out = {}
+    for tag in _META.findall(page):
+        a = dict((k.lower(), v) for k, v in _ATTR.findall(tag))
+        name = a.get("name") or a.get("property")
+        if name and "content" in a:
+            out.setdefault(name.lower(), html.unescape(a["content"]))
+    return out
+
+
+def extract_element(page: str, tag: str, id: str | None = None, cls: str | None = None) -> str | None:
+    """Inner HTML of the first <tag> matching id/class, honouring nested tags of the same name."""
+    if id:
+        attr = rf"""\bid\s*=\s*["']?{re.escape(id)}(?=["'\s>])"""
+    elif cls:
+        attr = rf"""\bclass\s*=\s*["']?[^"'>]*\b{re.escape(cls)}\b"""
+    else:
+        attr = ""
+    start = re.search(rf"<{tag}\b[^>]*{attr}[^>]*>", page, re.I)
+    if not start:
+        return None
+    depth, pos = 1, start.end()
+    opener, closer = re.compile(rf"<{tag}\b", re.I), re.compile(rf"</{tag}\s*>", re.I)
+    while depth:
+        c = closer.search(page, pos)
+        if not c:
+            return page[start.end():]
+        o = opener.search(page, pos, c.start())
+        if o:
+            depth, pos = depth + 1, o.end()
+        else:
+            depth, pos = depth - 1, c.end()
+    return page[start.end():c.start()]
+
+
+def _date(s: str | None) -> int | None:
+    if not s:
+        return None
+    try:
+        dt = datetime.fromisoformat(s.strip())
+    except ValueError:
+        return None
+    return int((dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).timestamp())
+
+
+class Parser:
+    POSITION_KEY_PREFIXES = ("page:",)  # per-page fetch times; a rebuild resets these
+
+    def __init__(self, ctx: CrawlContext):
+        self.ctx = ctx
+        o = ctx.options
+        self.sitemaps = o["sitemaps"]
+        self.include = [re.compile(p) for p in o.get("include", [])]
+        self.exclude = [re.compile(p) for p in o.get("exclude", [])]
+        self.content = o.get("content", {"tag": "main"})
+        self.title_strip = re.compile(o["title_strip"]) if o.get("title_strip") else None
+        self.version_meta = o.get("version_meta")
+        self.date_meta = o.get("date_meta")
+        self.refresh = int(o.get("refresh_days", 30)) * 86400
+        self.kind = o.get("kind", "page")
+
+    def crawl(self) -> Iterator[Document]:
+        now = time.time()
+        for url in self._urls():
+            seen = self.ctx.state.get(f"page:{url}")
+            if seen and now - seen < self.refresh:
+                continue
+            self.ctx.check_budget()
+            doc = self._page(url, self.ctx.fetcher.get_text(url, ttl=self.refresh))
+            if doc:
+                yield doc
+            self.ctx.state.set(f"page:{url}", now)
+
+    def _urls(self) -> list[str]:
+        urls, queue, seen = [], list(self.sitemaps), set()
+        while queue:
+            sm = queue.pop(0)
+            if sm in seen:
+                continue
+            seen.add(sm)
+            self.ctx.check_budget()
+            body = self.ctx.fetcher.get_text(sm, ttl=86400)
+            for loc in _LOC.findall(body):
+                loc = html.unescape(loc)
+                if "<sitemapindex" in body[:2000] or loc.endswith(".xml"):
+                    queue.append(loc)
+                elif (not self.include or any(p.search(loc) for p in self.include)) \
+                        and not any(p.search(loc) for p in self.exclude):
+                    urls.append(loc)
+        self.ctx.log.info("%d pages listed in sitemaps", len(urls))
+        return sorted(set(urls))
+
+    def _page(self, url: str, page: str) -> Document | None:
+        meta = meta_tags(page)
+        body = extract_element(page, self.content.get("tag", "main"), self.content.get("id"),
+                               self.content.get("class"))
+        if body is None:
+            self.ctx.log.warning("no content element in %s", url)
+            return None
+        md = html_to_markdown(body, base_url=url)
+        m = re.search(r"<title>(.*?)</title>", page, re.S | re.I)
+        title = meta.get("title") or (html.unescape(m.group(1)).strip() if m else url)
+        if self.title_strip:
+            title = self.title_strip.sub("", title).strip()
+        date = _date(meta.get(self.date_meta)) if self.date_meta else None
+        versions = [meta[self.version_meta]] if self.version_meta and meta.get(self.version_meta) else []
+        return Document(
+            doc_id=f"{self.ctx.source.id}:{re.sub(r'^https?://[^/]+/', '', url)}",
+            source=self.ctx.source.id, source_type=self.ctx.source.source_type, kind=self.kind,
+            url=url, title=title, content_md=md, post_date=date, updated_date=date,
+            extra={"versions": versions, "description": meta.get("description"),
+                   "product": meta.get("product")},
+        )

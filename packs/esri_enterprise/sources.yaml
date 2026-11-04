@@ -62,7 +62,27 @@ sources:
           categories:
             - {id: 737, name: Enterprise ideas}  # 1,523: feature requests, useful for "is this supported?"
 
+  - id: esri_docs
+    parser: sitemap_html
+    source_type: docs
+    trust: 1.0
+    options:
+      # doc.esri.com only publishes the current release (12.1 as of 2026-11-04).
+      # Older versioned docs (11.x, 10.9.1) live on enterprise.arcgis.com without a usable sitemap.
+      sitemaps:
+        - https://doc.esri.com/en/arcgis-enterprise/12.1/sitemap.xml          # ~1,230 pages
+        - https://doc.esri.com/en/arcgis-enterprise-k8s/12.1/sitemap.xml      # ~836 pages
+        - https://doc.esri.com/en/arcgis-enterprise-cloud-tools/12.1/sitemap.xml  # ~132 pages
+      include: ['^https://doc\.esri\.com/en/']
+      content: {tag: article, id: main}
+      title_strip: '\s*\|[^|]*documentation\s*$'
+      version_meta: version
+      date_meta: last-modified
+      refresh_days: 30
+      kind: page
+
   # Planned (not yet implemented):
-  #   esri_docs       - enterprise.arcgis.com docs, release notes, compatibility matrices
+  #   esri_docs_11x   - 11.x / 10.9.1 docs on enterprise.arcgis.com (needs TOC link-following)
+  #   esri_support    - support.esri.com knowledge base + bug database (sitemaps available)
   #   github          - Esri org issues/discussions via the GitHub API
   #   reddit          - r/gis via the official API (supplemental)

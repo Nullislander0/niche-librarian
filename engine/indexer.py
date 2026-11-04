@@ -33,7 +33,7 @@ def make_fetcher(pack: Pack, offline: bool = False) -> Fetcher:
 
 def index_document(store: Store, tagger: VersionTagger, doc: Document) -> bool:
     text = "\n".join([doc.title, doc.content_md, " ".join(doc.tags)])
-    versions = set(tagger.tag(text))
+    versions = set(tagger.tag(text)) | set(doc.extra.get("versions") or [])  # parser-declared, e.g. docs
     if doc.parent_id:  # replies inherit the thread's version context
         versions |= set(store.get_version_tags(doc.parent_id))
     return store.upsert(doc, sorted(versions, key=version_key), chunk_markdown(doc.content_md))

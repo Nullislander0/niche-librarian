@@ -25,9 +25,10 @@ def unwrap_redirect(href: str, param: str = "target") -> str:
 
 
 class _Converter(HTMLParser):
-    def __init__(self, redirect_param: str | None):
+    def __init__(self, redirect_param: str | None, base_url: str | None = None):
         super().__init__(convert_charrefs=True)
         self.redirect_param = redirect_param
+        self.base_url = base_url
         self.bufs: list[list[str]] = [[]]  # a new buffer per open blockquote
         self.lists: list[list] = []  # stack of [kind, counter]
         self.pre = 0
@@ -40,6 +41,8 @@ class _Converter(HTMLParser):
     def _href(self, href: str | None) -> str | None:
         if not href or href.startswith(("javascript:", "#")):
             return None
+        if self.base_url:
+            href = urllib.parse.urljoin(self.base_url, href)
         return unwrap_redirect(href, self.redirect_param) if self.redirect_param else href
 
     def _newline(self, n: int = 1):
@@ -54,6 +57,10 @@ class _Converter(HTMLParser):
 
     def _emit(self, s: str):
         self.bufs[-1].append(s)
+
+    def _at_list_marker(self) -> bool:
+        tail = "".join(self.bufs[-1][-3:])
+        return bool(self.lists) and bool(re.search(r"(^|\n)\s*(- |\d+\. )$", tail))
 
     # -- parser hooks -----------------------------------------------------
 
@@ -80,7 +87,12 @@ class _Converter(HTMLParser):
             self.skip = 1
             return
         if tag in ("p", "div", "section", "article", "figure", "table"):
-            self._newline(2)
+            if self.lists and tag in ("p", "div"):
+                if not self._at_list_marker():  # <li><p>a</p><p>b</p></li>: b continues the item
+                    self._newline(1)
+                    self._emit("   " * len(self.lists))
+            else:
+                self._newline(2)
         elif tag == "tr":
             self._newline(1)
             self._emit("|")
@@ -126,6 +138,8 @@ class _Converter(HTMLParser):
                 self._emit("[")
         elif tag == "img":
             src = a.get("src")
+            if src and self.base_url:
+                src = urllib.parse.urljoin(self.base_url, src)
             if src:
                 self._emit(f"![{a.get('alt') or 'image'}]({src})")
 
@@ -134,7 +148,7 @@ class _Converter(HTMLParser):
             self.skip -= 1
             return
         if tag in ("p", "div", "section", "article", "figure", "table") or re.fullmatch(r"h[1-6]", tag):
-            self._newline(2)
+            self._newline(1 if self.lists and tag in ("p", "div") else 2)
         elif tag in ("td", "th"):
             self._emit(" |")
         elif tag in ("strong", "b"):
@@ -180,10 +194,11 @@ def _tidy(md: str) -> str:
     return md.strip()
 
 
-def html_to_markdown(html: str, redirect_param: str | None = None) -> str:
+def html_to_markdown(html: str, redirect_param: str | None = None, base_url: str | None = None) -> str:
+    """base_url resolves relative links and images (e.g. ../install/page.html)."""
     if not html:
         return ""
-    c = _Converter(redirect_param)
+    c = _Converter(redirect_param, base_url)
     c.feed(html)
     c.close()
     while len(c.bufs) > 1:  # unclosed blockquote

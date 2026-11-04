@@ -24,6 +24,7 @@ DEFAULT_WEIGHTS = {
     "version_mismatch": -0.2,
     "recency": 0.15,
     "source_trust": 0.15,
+    "authoritative": 0.3,
     "accepted_answer": 0.25,
     "top_voted": 0.1,
     "vendor_staff": 0.2,
@@ -63,6 +64,7 @@ class Ranker:
         self.first_hand = [re.compile(p, re.I | re.M) for p in cfg.get("first_hand_patterns", [])]
         self.first_hand_saturation = int(cfg.get("first_hand_saturation", 3))
         self.source_trust = source_trust
+        self.authoritative = set(cfg.get("authoritative_source_types", []))
 
     def version_sensitive(self, query: str, query_versions: list[str]) -> bool:
         q = query.lower()
@@ -82,6 +84,8 @@ class Ranker:
             age_days = max(0.0, (now - c["post_date"]) / 86400)
             s["recency"] = 0.5 ** (age_days / self.half_life)
         s["source_trust"] = float(self.source_trust.get(c["source"], 0.5))
+        if c.get("source_type") in self.authoritative:
+            s["authoritative"] = 1.0
         if c.get("is_accepted"):
             s["accepted_answer"] = 1.0
         if c.get("is_top_voted"):

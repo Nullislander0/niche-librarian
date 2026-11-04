@@ -12,6 +12,7 @@ weights:
   version_mismatch: -0.2  # result is clearly about a different version
   recency: 0.15           # only when the query is version-sensitive (see below)
   source_trust: 0.15      # per-source `trust` in sources.yaml
+  authoritative: 0.3      # official documentation (see authoritative_source_types)
   accepted_answer: 0.25
   top_voted: 0.1
   vendor_staff: 0.2       # e.g. Esri staff on Esri Community
@@ -20,6 +21,9 @@ weights:
   author_reputation: 0.1
   account_age: 0.05
   votes: 0.1
+
+# Source types that are the vendor's own word (docs, release notes, KB, bug reports).
+authoritative_source_types: [docs]
 
 recency:
   half_life_days: 730

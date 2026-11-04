@@ -87,7 +87,8 @@ class Searcher:
                 "source_type": c["source_type"],
                 "kind": c["kind"],
                 "score": round(c["score_total"], 3),
-                "flags": [f for f in ("accepted", "top_voted", "vendor_staff") if c.get(f"is_{f}")]
+                "flags": (["official"] if c.get("source_type") in self.ranker.authoritative else [])
+                + [f for f in ("accepted", "top_voted", "vendor_staff") if c.get(f"is_{f}")]
                 + (["expert"] if (c.get("extra") or {}).get("recognized_expert") else []),
                 "snippet": snippet(c["text"], query),
                 "tokens": {"chunk": tokens(c["text"]), "document": tokens(c["content_md"])},
@@ -175,13 +176,15 @@ def _header(doc: dict, cite: str | None = None) -> str:
         f"- url: {doc['url']}",
         f"- source: {doc['source']} ({doc['source_type']})",
         f"- posted: {fmt_date(doc['post_date'])}; last activity: {fmt_date(doc['updated_date'])}",
-        f"- author: {doc['author'] or 'unknown'}"
+        f"- author: {doc['author']}"
         + (f" (reputation {doc['author_reputation']})" if doc.get("author_reputation") else "")
-        + (f" [{doc['extra']['author_label']}]" if (doc.get("extra") or {}).get("author_label") else ""),
-        f"- score: {doc['score']}" + (f"; {', '.join(flags)}" if flags else ""),
+        + (f" [{doc['extra']['author_label']}]" if (doc.get("extra") or {}).get("author_label") else "")
+        if doc.get("author") else None,
+        f"- score: {doc['score']}" + (f"; {', '.join(flags)}" if flags else "")
+        if doc.get("score") is not None else (f"- flags: {', '.join(flags)}" if flags else None),
         f"- versions: {', '.join(doc['version_tags']) or 'none detected'}",
     ]
-    return "\n".join(lines)
+    return "\n".join(line for line in lines if line)
 
 
 def _render(doc: dict, cite: str | None = None) -> str:
