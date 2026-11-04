@@ -41,9 +41,12 @@ class _Converter(HTMLParser):
     def _href(self, href: str | None) -> str | None:
         if not href or href.startswith(("javascript:", "#")):
             return None
-        if self.base_url:
-            href = urllib.parse.urljoin(self.base_url, href)
-        return unwrap_redirect(href, self.redirect_param) if self.redirect_param else href
+        try:
+            if self.base_url:
+                href = urllib.parse.urljoin(self.base_url, href)
+            return unwrap_redirect(href, self.redirect_param) if self.redirect_param else href
+        except ValueError:  # malformed URL in user content (e.g. "http://[bad")
+            return None
 
     def _newline(self, n: int = 1):
         """Ensure the current buffer ends with at least n newlines (none at the very start)."""
@@ -139,7 +142,10 @@ class _Converter(HTMLParser):
         elif tag == "img":
             src = a.get("src")
             if src and self.base_url:
-                src = urllib.parse.urljoin(self.base_url, src)
+                try:
+                    src = urllib.parse.urljoin(self.base_url, src)
+                except ValueError:
+                    src = None
             if src:
                 self._emit(f"![{a.get('alt') or 'image'}]({src})")
 

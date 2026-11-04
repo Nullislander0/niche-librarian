@@ -85,6 +85,9 @@ def crawl(pack: Pack, source_ids: list[str] | None = None, max_requests: int | N
             except FetchError as e:
                 status = f"error: {e}"
                 log.error("%s failed: %s", src.id, e)
+            except Exception as e:  # a parser bug stops this source, not the whole run
+                status = f"error: {type(e).__name__}: {e}"
+                log.exception("%s crashed; progress so far is kept", src.id)
             store.refresh_top_voted(src.id)
             report[src.id] = {"documents_seen": seen, "new_or_changed": changed,
                               "network_requests": ctx.requests_made, "status": status}

@@ -127,3 +127,9 @@ def test_vanilla_skips_item_the_api_cannot_serialise():
     assert comment_calls[-1]["dateInserted"] == ">=1970-01-01T00:16:41Z"  # resumes at 1001s
     assert len(comment_calls) < 40
     assert [d.doc_id for d in docs] == ["esri_community:d:501", "esri_community:c:950"]
+
+
+def test_malformed_links_do_not_crash_conversion():
+    out = html_to_markdown('<p>see <a href="http://[broken">here</a> and <img src="http://[x/y.png" alt="pic"></p>',
+                           base_url="https://forum.example/f/")
+    assert "here" in out and "http://[broken" not in out
