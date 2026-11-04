@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
 import sys
@@ -73,44 +74,48 @@ def main(argv: list[str] | None = None) -> None:
                         format="%(asctime)s %(name)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
     pack = load_pack(a.pack)
 
-    if a.cmd == "crawl":
-        from engine.indexer import crawl
-        print(json.dumps(crawl(pack, a.source, a.max_requests, embed=not a.no_embed), indent=2))
-    elif a.cmd == "rebuild":
-        from engine.indexer import crawl
-        print(json.dumps(crawl(pack, a.source, offline=True), indent=2))
-    elif a.cmd == "eval-build":
-        from engine.evaluate import build
-        print(json.dumps(build(pack, a.n, rewrite=a.rewrite), indent=2))
-    elif a.cmd == "eval":
-        from engine.evaluate import run
-        rr = None
-        if a.reranker:
-            rr = {} if a.reranker == "off" else {"model": a.reranker, "candidates": a.rerank_candidates,
-                                                 "alpha": a.alpha}
-        print(json.dumps(run(pack, label=a.label, reranker=rr), indent=2))
-    elif a.cmd == "retag":
-        from engine.indexer import retag
-        print(json.dumps(retag(pack), indent=2))
-    elif a.cmd == "outline":
-        from engine.search import Searcher
-        print(Searcher(pack).outline(a.source))
-    elif a.cmd == "embed":
-        from engine.indexer import embed_missing, open_store
-        store = open_store(pack, reset_embeddings=a.reset)
-        print(f"embedded: {embed_missing(store)}")
-    elif a.cmd == "stats":
-        from engine.search import Searcher
-        print(json.dumps(Searcher(pack).info(), indent=2))
-    elif a.cmd == "search":
-        from engine.mcp_server.server import format_results
-        from engine.search import Searcher
-        res = Searcher(pack).search(a.query, a.limit, a.version, a.version_mode, a.date_from, a.date_to,
-                                    a.source_type, a.source, a.explain)
-        print(json.dumps(res, indent=2) if a.json else format_results(res))
-    elif a.cmd == "fetch":
-        from engine.search import Searcher
-        print(Searcher(pack).fetch(a.chunk_id, a.scope, a.max_tokens) or f"not found: {a.chunk_id}")
+    # Long jobs hold a "stay awake" request so the machine doesn't suspend mid-run.
+    long_job = a.cmd in ("crawl", "rebuild", "embed", "eval", "eval-build")
+    from engine.awake import stay_awake
+    with stay_awake(f"librarian {a.cmd} ({a.pack})") if long_job else contextlib.nullcontext():
+        if a.cmd == "crawl":
+            from engine.indexer import crawl
+            print(json.dumps(crawl(pack, a.source, a.max_requests, embed=not a.no_embed), indent=2))
+        elif a.cmd == "rebuild":
+            from engine.indexer import crawl
+            print(json.dumps(crawl(pack, a.source, offline=True), indent=2))
+        elif a.cmd == "eval-build":
+            from engine.evaluate import build
+            print(json.dumps(build(pack, a.n, rewrite=a.rewrite), indent=2))
+        elif a.cmd == "eval":
+            from engine.evaluate import run
+            rr = None
+            if a.reranker:
+                rr = {} if a.reranker == "off" else {"model": a.reranker, "candidates": a.rerank_candidates,
+                                                     "alpha": a.alpha}
+            print(json.dumps(run(pack, label=a.label, reranker=rr), indent=2))
+        elif a.cmd == "retag":
+            from engine.indexer import retag
+            print(json.dumps(retag(pack), indent=2))
+        elif a.cmd == "outline":
+            from engine.search import Searcher
+            print(Searcher(pack).outline(a.source))
+        elif a.cmd == "embed":
+            from engine.indexer import embed_missing, open_store
+            store = open_store(pack, reset_embeddings=a.reset)
+            print(f"embedded: {embed_missing(store)}")
+        elif a.cmd == "stats":
+            from engine.search import Searcher
+            print(json.dumps(Searcher(pack).info(), indent=2))
+        elif a.cmd == "search":
+            from engine.mcp_server.server import format_results
+            from engine.search import Searcher
+            res = Searcher(pack).search(a.query, a.limit, a.version, a.version_mode, a.date_from, a.date_to,
+                                        a.source_type, a.source, a.explain)
+            print(json.dumps(res, indent=2) if a.json else format_results(res))
+        elif a.cmd == "fetch":
+            from engine.search import Searcher
+            print(Searcher(pack).fetch(a.chunk_id, a.scope, a.max_tokens) or f"not found: {a.chunk_id}")
 
 
 if __name__ == "__main__":

@@ -73,6 +73,10 @@ never deleted. That allows rebuilding without the network:
 .venv/bin/librarian retag     # recompute version tags after editing versions.yaml (seconds)
 ```
 
+Long jobs (`crawl`, `rebuild`, `embed`, `eval`) ask the desktop to stay awake while they
+run, the way a video player does, and release the request when they finish. The machine
+then sleeps normally afterwards. Set `LIBRARIAN_NO_STAY_AWAKE=1` to turn this off.
+
 `rebuild` replays from the start, using throwaway crawl state, so your real resume points
 stay untouched. Unchanged posts keep their embeddings.
 
