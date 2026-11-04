@@ -33,6 +33,10 @@ def _ts(iso: str | None) -> int | None:
     return int(datetime.fromisoformat(iso).timestamp()) if iso else None
 
 
+def _unserialisable(e: FetchError) -> bool:
+    return e.status == 400 and "Validation failed" in (e.body or "")
+
+
 def _iso(ts: int) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -64,24 +68,20 @@ class Parser:
         st = self.ctx.state.get(key) or {"cursor": 0, "complete": False}
         cursor = max(0, st["cursor"] - self.revisit) if st["complete"] else st["cursor"]
         size = self.page_size
+        ttl = 0 if st["complete"] else None
         while True:
             self.ctx.check_budget()
             try:
-                items = self.ctx.fetcher.get_json(f"{self.base}/api/v2/{endpoint}", {
-                    "categoryID": category, "sort": "dateInserted", "limit": size,
-                    "dateInserted": f">={_iso(cursor)}", "expand": "insertUser",
-                }, ttl=0 if st["complete"] else None)
+                items = self._get(endpoint, category, cursor, size, ttl)
             except FetchError as e:
                 # The API sometimes fails to serialise one malformed post ("Validation failed").
-                # Shrink the page to isolate it, then step past it by one second.
-                if e.status != 400 or "Validation failed" not in e.body:
+                # Shrink the page to isolate it; if even one item fails, jump past that item.
+                if not _unserialisable(e):
                     raise
                 if size > 1:
                     size = max(1, size // 5)
                 else:
-                    self.ctx.log.warning("skipping an item the API can't return (%s, %s at %s)",
-                                         endpoint, category, _iso(cursor))
-                    cursor, size = cursor + 1, self.page_size
+                    cursor, size = self._skip_bad_item(endpoint, category, cursor, ttl), self.page_size
                 continue
             for item in items:
                 doc = convert(item)
@@ -98,6 +98,36 @@ class Parser:
             st["cursor"] = max(st["cursor"], _ts(items[-1]["dateInserted"]))
         st["complete"] = True
         self.ctx.state.set(key, st)
+
+    def _get(self, endpoint: str, category: int, cursor: int, size: int, ttl) -> list[dict]:
+        return self.ctx.fetcher.get_json(f"{self.base}/api/v2/{endpoint}", {
+            "categoryID": category, "sort": "dateInserted", "limit": size,
+            "dateInserted": f">={_iso(cursor)}", "expand": "insertUser",
+        }, ttl=ttl)
+
+    def _skip_bad_item(self, endpoint: str, category: int, cursor: int, ttl) -> int:
+        """The first item at or after `cursor` can't be returned. Nothing readable lies between
+        `cursor` and that item, so find the earliest second where a 1-item request works again:
+        double the jump until one succeeds, then binary-search back. ~2*log2(gap) requests."""
+        def ok(t: int) -> bool:
+            self.ctx.check_budget()
+            try:
+                self._get(endpoint, category, t, 1, ttl)
+                return True
+            except FetchError as e:
+                if _unserialisable(e):
+                    return False
+                raise
+        lo, step = cursor, 1  # lo always fails
+        while not ok(lo + step):
+            lo, step = lo + step, step * 2
+        hi = lo + step        # hi succeeds
+        while hi - lo > 1:
+            mid = (lo + hi) // 2
+            lo, hi = (lo, mid) if ok(mid) else (mid, hi)
+        self.ctx.log.warning("skipped an item the API can't return (%s, category %s, at %s)",
+                             endpoint, category, _iso(hi - 1))
+        return hi
 
     # -- normalise --------------------------------------------------------
 

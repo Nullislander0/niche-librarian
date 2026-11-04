@@ -97,15 +97,24 @@ def test_html_to_markdown():
 
 
 def test_vanilla_skips_item_the_api_cannot_serialise():
+    """A bad comment at t=1000s (with nothing readable before it) is found and stepped over."""
     from engine.crawl.fetcher import FetchError
+    from engine.parsers.vanilla import _ts
+
+    good = {"commentID": 950, "discussionID": 501, "parentRecordType": "discussion", "name": "Re: x",
+            "body": "<p>after the bad one</p>", "dateInserted": "1970-01-01T00:20:00+00:00", "score": 0,
+            "url": "u", "insertUser": {"userID": 9, "name": "n", "label": ""}}
 
     class Flaky(VanillaFetcher):
         def get_json(self, url, params=None, ttl=None):
             self.network_requests += 1
             self.calls.append((url, params))
-            if url.endswith("/comments") and params["dateInserted"] == ">=1970-01-01T00:00:00Z":
+            if url.endswith("/discussions"):
+                return DISCUSSIONS
+            since = _ts(params["dateInserted"][2:].replace("Z", "+00:00"))
+            if since <= 1000:
                 raise FetchError("HTTP 400", 400, '{"message": "Validation failed."}')
-            return DISCUSSIONS if url.endswith("/discussions") else []
+            return [good]
 
     pack = load_pack("esri_enterprise")
     src = pack.source("esri_community")
@@ -113,6 +122,8 @@ def test_vanilla_skips_item_the_api_cannot_serialise():
                    "category_tiers": [{"tier": 1, "categories": [1]}]}
     f = Flaky()
     docs = list(Parser(CrawlContext(source=src, fetcher=f, state=DictState())).crawl())
-    sizes = [p["limit"] for u, p in f.calls if u.endswith("/comments")]
-    assert sizes == [500, 100, 20, 4, 1, 500]  # shrink, skip one second, resume
-    assert len(docs) == 1
+    comment_calls = [p for u, p in f.calls if u.endswith("/comments")]
+    assert [p["limit"] for p in comment_calls[:5]] == [500, 100, 20, 4, 1]
+    assert comment_calls[-1]["dateInserted"] == ">=1970-01-01T00:16:41Z"  # resumes at 1001s
+    assert len(comment_calls) < 40
+    assert [d.doc_id for d in docs] == ["esri_community:d:501", "esri_community:c:950"]
