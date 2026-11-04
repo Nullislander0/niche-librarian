@@ -12,10 +12,12 @@ from test_pipeline import FakeEmbedder, crawl_fixture
 
 
 def test_synonyms_expand_whole_words_only():
-    s = Synonyms([["arcgis server", "ags"], ["web adaptor", "webadaptor"]])
+    s = Synonyms([["arcgis server", "ags"], ["web adaptor", "webadaptor"], "portal for arcgis -> arcgis enterprise portal"])
     assert s.expand("AGS won't start") == ["arcgis server"]
     assert s.expand("configure webadaptor on IIS") == ["web adaptor"]
     assert s.expand("bags of data") == []
+    assert s.expand("portal for arcgis login") == ["arcgis enterprise portal"]
+    assert s.expand("arcgis enterprise portal login") == []  # one-way
 
 
 def test_expansions_become_fts_phrases():
@@ -38,7 +40,7 @@ def test_search_reports_tokens_and_expansion():
     store = Store(":memory:", 16)
     crawl_fixture(pack, store)
     res = Searcher(pack, store=store, embedder=FakeEmbedder()).search("portal federation")
-    assert "portal for arcgis" in res["expanded_with"]
+    assert res["expanded_with"] == []  # "portal" alone no longer expands
     assert res["results"][0]["tokens"]["chunk"] > 0
     out = Searcher(pack, store=store, embedder=FakeEmbedder()).outline()
     assert "gis_se" in out and "11.1" not in out.split("Version coverage")[0][-1:]

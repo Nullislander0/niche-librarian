@@ -1,37 +1,36 @@
-# Equivalent terms for keyword search. If any term in a group appears in a query, the
-# others are added as alternatives. Covers renames, abbreviations and common spellings.
-# Avoid very short ambiguous tokens (e.g. "ad", "wa") - they fire on unrelated words.
+# Query expansion for keyword search. Measured with `librarian eval` (2026-11-04):
+# expanding common words into long phrases hurt recall, so most entries are one-way.
+#   "a, b -> c"   a or b in the query also searches c (one-way)
+#   [a, b]        either term also searches the other (two-way; only for rare, equal terms)
 groups:
-  - [web adaptor, webadaptor, web adapter]
-  - [arcgis server, ags]
-  - [portal for arcgis, arcgis enterprise portal, portal]
-  - [enterprise geodatabase, egdb, arcsde, sde geodatabase, sde]
-  - [arcgis data store, data store, datastore]
+  - "webadaptor, web adapter -> web adaptor"
+  - "ags -> arcgis server"
+  - "portal for arcgis -> arcgis enterprise portal"
+  - "arcgis enterprise portal -> portal for arcgis"
+  - "egdb, arcsde, sde geodatabase -> enterprise geodatabase"
+  - "datastore -> data store"
   - [relational data store, relational store]
-  - [tile cache data store, tilecache]
-  - [spatiotemporal big data store, spatiotemporal data store, bds]
-  - [object store, object data store]
-  - [hosted feature layer, hosted feature service, hosted layer]
-  - [federation, federate, federated server]
-  - [ca-signed certificate, ssl certificate, tls certificate, https certificate]
-  - [self-signed certificate, self signed certificate]
-  - [high availability, ha]
-  - [disaster recovery, webgisdr, web gis dr]
-  - [arcgis enterprise builder, enterprise builder, base deployment, base arcgis enterprise deployment]
-  - [arcgis server manager, server manager]
-  - [portal administrator directory, portaladmin, portal admin api]
-  - [arcgis server administrator directory, server admin, arcgis/admin]
-  - [arcgis enterprise on kubernetes, enterprise on kubernetes, k8s]
-  - [saml, enterprise logins, identity provider, idp]
-  - [integrated windows authentication, iwa, windows authentication]
-  - [active directory, ldap]
-  - [arcgis notebook server, notebook server]
-  - [arcgis geoevent server, geoevent server, geoevent]
-  - [arcgis image server, image server, raster analytics]
-  - [arcgis monitor, monitor server]
-  - [map service, mapserver, map image layer]
-  - [feature service, featureserver, feature layer]
-  - [arcmap, arcgis desktop]
-  - [iis, internet information services]
-  - [service definition, sd file, sddraft]
-  - [arcgis enterprise sdk, server object extension, soe, soi, server object interceptor]
+  - "tilecache -> tile cache data store"
+  - "bds, spatiotemporal data store -> spatiotemporal big data store"
+  - "object data store -> object store"
+  - "hosted feature service -> hosted feature layer"
+  - "ca-signed certificate, tls certificate, https certificate -> ssl certificate"
+  - "self signed certificate -> self-signed certificate"
+  - "ha -> high availability"
+  - "web gis dr -> webgisdr"
+  - "base deployment, enterprise builder -> arcgis enterprise builder"
+  - "portaladmin, portal admin api -> portal administrator directory"
+  - "arcgis/admin -> arcgis server administrator directory"
+  - "k8s -> kubernetes"
+  - "idp, enterprise logins -> saml"
+  - "iwa -> integrated windows authentication"
+  - "notebook server -> arcgis notebook server"
+  - "geoevent -> geoevent server"
+  - "raster analytics -> image server"
+  - "mapserver -> map service"
+  - "featureserver -> feature service"
+  - "arcmap -> arcgis desktop"
+  - "internet information services -> iis"
+  - "sd file, sddraft -> service definition"
+  - "soe -> server object extension"
+  - "soi -> server object interceptor"
