@@ -15,7 +15,11 @@ Options (sources.yaml):
   refresh_days: 30                       # re-fetch pages older than this
   meta_filter: {product: 'Enterprise|Portal'}  # keep a page only if every listed meta tag
                                          # matches its regex (pages are still fetched once)
-  extra_meta: [product, article-type]    # meta tags copied into extra
+  extra_meta: [product, article-type]    # meta tags copied into extra (shown in fetch headers)
+  extract: {version_fixed: 'Version Fixed\s*\|\s*([^|\n]+?)\s*\|'}  # regexes on the page markdown
+  versions_from: [version_fixed]         # extracted/meta fields that are product versions
+  title_format: '{title}: {h1}'          # fields: title (cleaned <title>/meta title), h1, meta_<name>
+  sort: {pattern: '-(\d+)$', descending: true}   # crawl order, e.g. newest ids first
   kind: page
 
 Mark the source authoritative by listing its source_type under
@@ -107,6 +111,10 @@ class Parser:
         self.kind = o.get("kind", "page")
         self.meta_filter = {k.lower(): re.compile(v, re.I) for k, v in (o.get("meta_filter") or {}).items()}
         self.extra_meta = [m.lower() for m in o.get("extra_meta", [])]
+        self.extract = {k: re.compile(v, re.I) for k, v in (o.get("extract") or {}).items()}
+        self.versions_from = [v.lower() for v in o.get("versions_from", [])]
+        self.title_format = o.get("title_format")
+        self.sort = o.get("sort")
         self.skipped = 0
 
     def crawl(self) -> Iterator[Document]:
@@ -138,7 +146,14 @@ class Parser:
                         and not any(p.search(loc) for p in self.exclude):
                     urls.append(loc)
         self.ctx.log.info("%d pages listed in sitemaps", len(urls))
-        return sorted(set(urls))
+        urls = sorted(set(urls))
+        if self.sort:
+            pat = re.compile(self.sort["pattern"])
+            def key(u):
+                m = pat.search(u)
+                return int(m.group(1)) if m and m.group(1).isdigit() else (m.group(1) if m else "")
+            urls.sort(key=key, reverse=bool(self.sort.get("descending")))
+        return urls
 
     def _page(self, url: str, page: str) -> Document | None:
         meta = meta_tags(page)
@@ -155,12 +170,27 @@ class Parser:
         title = meta.get("title") or (html.unescape(m.group(1)).strip() if m else url)
         if self.title_strip:
             title = self.title_strip.sub("", title).strip()
+        if self.title_format:
+            h1 = re.search(r"<h1[^>]*>(.*?)</h1>", page, re.S | re.I)
+            fields = {"title": title, "h1": html.unescape(re.sub(r"<[^>]+>|\s+", " ", h1.group(1))).strip() if h1 else "",
+                      **{f"meta_{k.replace('-', '_')}": v for k, v in meta.items()}}
+            try:
+                title = self.title_format.format(**fields).strip(" :")[:250]
+            except KeyError:
+                pass
         date = _date(meta.get(self.date_meta)) if self.date_meta else None
+        details = {m: meta.get(m) for m in self.extra_meta if meta.get(m)}
+        for k, p in self.extract.items():
+            m = p.search(md)
+            if m:
+                details[k] = m.group(1).strip()
         versions = [meta[self.version_meta]] if self.version_meta and meta.get(self.version_meta) else []
+        versions += [details[k] for k in self.versions_from
+                     if re.fullmatch(r"\d+(\.\d+)+", details.get(k, "") or "")]
         return Document(
             doc_id=f"{self.ctx.source.id}:{re.sub(r'^https?://[^/]+/', '', url)}",
             source=self.ctx.source.id, source_type=self.ctx.source.source_type, kind=self.kind,
             url=url, title=title, content_md=md, post_date=date, updated_date=date,
-            extra={"versions": versions, "description": meta.get("description"),
-                   **{m: meta.get(m) for m in self.extra_meta or ["product"]}},
+            extra={"versions": sorted(set(versions)), "description": meta.get("description"),
+                   "product": meta.get("product"), "details": details},
         )

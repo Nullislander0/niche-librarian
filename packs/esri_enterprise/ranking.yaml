@@ -23,7 +23,7 @@ weights:
   votes: 0.1
 
 # Source types that are the vendor's own word (docs, release notes, KB, bug reports).
-authoritative_source_types: [docs, kb]
+authoritative_source_types: [docs, kb, bug]
 
 recency:
   half_life_days: 730

@@ -184,6 +184,9 @@ def _header(doc: dict, cite: str | None = None) -> str:
         if doc.get("score") is not None else (f"- flags: {', '.join(flags)}" if flags else None),
         f"- versions: {', '.join(doc['version_tags']) or 'none detected'}",
     ]
+    details = (doc.get("extra") or {}).get("details") or {}
+    if details:
+        lines.append("- details: " + "; ".join(f"{k.replace('_', ' ')}: {v}" for k, v in details.items()))
     return "\n".join(line for line in lines if line)
 
 

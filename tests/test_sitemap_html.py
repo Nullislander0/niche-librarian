@@ -77,3 +77,40 @@ def test_meta_filter_and_us_dates():
                    "include": ["^https://docs\\.example/en/p/"], "meta_filter": {"version": "^11\\."}}
     p = Parser(CrawlContext(source=src, fetcher=SiteFetcher(), state=DictState()))
     assert list(p.crawl()) == [] and p.skipped == 1  # page is 12.1, filter wants 11.x
+
+
+BUG_PAGE = """<html><head><title>BUG-000170001 for Portal for ArcGIS</title>
+<meta name="product" content="Portal for ArcGIS"><meta name="version" content="11.3">
+<meta name="status" content="Fixed"><meta name="last-modified" content="08/07/2025"></head><body>
+<h1>Federation fails when the server URL has a trailing slash.</h1>
+<div class="item leftcontent"><table><tr><td>Version found</td><td>11.3</td></tr>
+<tr><td>Version Fixed</td><td>11.5</td></tr><tr><td>Status</td><td>Fixed</td></tr></table>
+<h2>Workaround</h2><p>Remove the trailing slash.</p></div></body></html>"""
+
+
+def test_bug_page_fields_and_newest_first():
+    pack = load_pack("esri_enterprise")
+    src = pack.source("esri_bugs")
+
+    class BugFetcher:
+        network_requests = 0
+        fetched = []
+
+        def get_text(self, url, params=None, ttl=None):
+            if url.endswith(".xml"):
+                return ("<urlset>" + "".join(
+                    f"<url><loc>https://support.esri.com/en-us/bug/{s}</loc></url>" for s in (
+                        "portal-federation-fails-bug-000170001", "portal-other-thing-bug-000180002",
+                        "pro-crashes-on-start-bug-000180003", "portal-old-thing-bug-000110004")) + "</urlset>")
+            self.fetched.append(url)
+            return BUG_PAGE
+
+    src.options = {**src.options, "sitemaps": ["https://support.esri.com/x.xml"]}
+    f = BugFetcher()
+    docs = list(Parser(CrawlContext(source=src, fetcher=f, state=DictState())).crawl())
+    assert [u.rsplit("-", 1)[-1] for u in f.fetched] == ["000180002", "000170001"]  # filtered, newest first
+    d = docs[0]
+    assert d.title == "BUG-000170001: Federation fails when the server URL has a trailing slash."
+    assert d.extra["details"] == {"product": "Portal for ArcGIS", "status": "Fixed", "version": "11.3",
+                                  "version_fixed": "11.5"}
+    assert d.extra["versions"] == ["11.3", "11.5"]

@@ -116,8 +116,32 @@ sources:
       refresh_days: 60
       kind: article
 
+  - id: esri_bugs
+    parser: sitemap_html
+    source_type: bug
+    trust: 0.95
+    options:
+      # Esri's public bug database: ~390k records for every product. Only newer records
+      # (BUG-000120000+, roughly 2019 onward) whose URL slug names an Enterprise component
+      # are fetched (~11.7k, newest first); then <meta name="product"> must match too.
+      sitemaps: [https://support.esri.com/en-us/bugs/sitemap-bugs.xml]
+      include:
+        - '^https://support\.esri\.com/en-us/bug/(?=[^/]*(portal|arcgis-server|arcgis-enterprise|enterprise-|data-store|datastore|web-adaptor|federat|webgisdr|kubernetes|server-manager|geoevent|image-server|notebook-server|arcgis-monitor|workflow-manager|enterprise-geodatabase|hosted-feature))[^/]*-bug-0001[2-9]\d{4}$'
+      sort: {pattern: '-bug-0*(\d+)$', descending: true}
+      content: {tag: div, class: leftcontent}
+      title_strip: '\s+for\s+.*$'
+      title_format: '{title}: {h1}'
+      version_meta: version
+      date_meta: last-modified
+      meta_filter:
+        product: 'ArcGIS Enterprise|Portal for ArcGIS|ArcGIS Server|Data Store|Web Adaptor|ArcGIS Monitor|GeoEvent|Image Server|Notebook Server|Workflow Manager|Geodatabase|GeoAnalytics Server'
+      extra_meta: [product, status, version]
+      extract: {version_fixed: 'Version Fixed\s*\|\s*([^|\n]+?)\s*\|'}
+      versions_from: [version_fixed]
+      refresh_days: 30
+      kind: bug
+
   # Planned (not yet implemented):
   #   esri_docs_11x   - 11.x / 10.9.1 docs on enterprise.arcgis.com (needs TOC link-following)
-  #   esri_bugs       - support.esri.com bug database (~120k pages; needs URL prefiltering)
   #   github          - Esri org issues/discussions via the GitHub API
   #   reddit          - r/gis via the official API (supplemental)
