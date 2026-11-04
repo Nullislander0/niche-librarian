@@ -5,6 +5,16 @@ candidates: 60          # per retriever (keyword, vector) before fusion
 rrf_k: 20               # lower = steeper drop-off between retrieval ranks
 max_chunks_per_doc: 1
 
+# Cross-encoder rerank of the top fused results (pip install -e ".[rerank]").
+# Eval 2026-11-04, 200 known-item queries (R@1 / R@5 / s per query, CPU, crawls running):
+#   off 0.73 / 0.895 / 0.35   MiniLM-L-6 0.795 / 0.92 / 0.99   MiniLM-L-12 0.80 / 0.93 / 1.58
+#   jina-v1-tiny 0.745 / 0.925 / 0.84   bge-reranker-base 0.71 / 0.90 / 3.66
+reranker:
+  model: Xenova/ms-marco-MiniLM-L-6-v2
+  candidates: 20
+  max_chars: 1000
+  alpha: 0.7
+
 weights:
   retrieval: 1.5         # exponent: higher = relevance matters more vs. quality signals
   version_exact: 0.35     # result mentions the version asked about

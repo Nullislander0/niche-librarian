@@ -32,7 +32,11 @@ fusion, then reranked using signals from `ranking.yaml`:
 - First-hand evidence: error codes, logs, "this fixed it".
 - Author reputation and account age.
 
-Those signals multiply relevance rather than add to it. The ranking deliberately has no
+Those signals multiply relevance rather than add to it. Optionally, a small
+cross-encoder (FastEmbed, ONNX Runtime) re-reads the top 20 candidates against the query
+first. On the pack's eval, it raised top-1 accuracy from 73% to about 80%. It's configured
+under `reranker:` in `ranking.yaml`, and the model downloads to `data/models/` on first use.
+Compare models with `librarian eval --reranker <model>`. The ranking deliberately has no
 backlink weighting, no keyword-stuffing rewards and no blanket freshness bias.
 
 ## Setup
@@ -42,7 +46,7 @@ search still works in keyword-only mode.
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -e ".[dev]"
+.venv/bin/pip install -e ".[dev,rerank]"   # rerank = optional cross-encoder (ONNX, no PyTorch)
 ollama pull nomic-embed-text
 .venv/bin/pytest
 ```
