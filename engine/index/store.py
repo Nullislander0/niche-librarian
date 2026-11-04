@@ -181,6 +181,15 @@ class Store:
             self.db.execute("DELETE FROM chunks_vec WHERE rowid=?", (rid,))
         self.db.execute("DELETE FROM chunks WHERE doc_id=?", (doc_id,))
 
+    def refresh_top_voted(self, source: str) -> None:
+        """A reply is top voted if it has the thread's highest positive score."""
+        self.db.execute("""
+            UPDATE documents SET is_top_voted = (
+                parent_id IS NOT NULL AND COALESCE(score, 0) > 0 AND score = (
+                    SELECT MAX(d2.score) FROM documents d2 WHERE d2.parent_id = documents.parent_id))
+            WHERE source = ?""", (source,))
+        self.db.commit()
+
     def chunks_missing_embeddings(self, limit: int = 256) -> list[sqlite3.Row]:
         return self.db.execute(
             "SELECT c.id, c.text, d.title FROM chunks c JOIN documents d USING(doc_id) "
@@ -248,6 +257,7 @@ class Store:
         d = dict(r)
         d["tags"] = json.loads(d["tags"] or "[]")
         d["version_tags"] = json.loads(d["version_tags"] or "[]")
+        d["extra"] = json.loads(d["extra"] or "{}")
         return d
 
     def get_thread(self, root_id: str) -> list[dict]:

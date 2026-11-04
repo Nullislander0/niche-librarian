@@ -27,6 +27,7 @@ DEFAULT_WEIGHTS = {
     "accepted_answer": 0.25,
     "top_voted": 0.1,
     "vendor_staff": 0.2,
+    "recognized_expert": 0.1,
     "first_hand": 0.2,
     "author_reputation": 0.1,
     "account_age": 0.05,
@@ -86,6 +87,8 @@ class Ranker:
             s["top_voted"] = 1.0
         if c.get("is_vendor_staff"):
             s["vendor_staff"] = 1.0
+        if (c.get("extra") or {}).get("recognized_expert"):
+            s["recognized_expert"] = 1.0
         if self.first_hand:
             hits = sum(1 for p in self.first_hand if p.search(c.get("content_md") or c.get("text") or ""))
             if hits:

@@ -30,8 +30,39 @@ sources:
         - tier: 3
           tags: [enterprise-geodatabase]  # 1478
 
+  - id: esri_community
+    parser: vanilla
+    source_type: forum
+    trust: 0.8
+    options:
+      base_url: https://community.esri.com
+      page_size: 500
+      revisit_days: 30
+      redirect_param: target          # links arrive as /home/leaving?target=<url>
+      staff_label_pattern: '^\s*Esri\b'   # user labels like "Esri Notable", "Esri Contributor"
+      expert_label_pattern: '\bMVP\b'
+      # Category IDs from /api/v2/categories (discussion counts checked 2026-11-04).
+      category_tiers:
+        - tier: 1   # ArcGIS Enterprise boards
+          categories:
+            - 739    # Enterprise questions (9,916)
+            - 1440   # Enterprise Portal (4,335)
+            - 1745   # High availability / disaster recovery (173)
+            - 2074   # Publishing and managing services (382)
+            - 734    # Enterprise in the cloud (257)
+            - 736    # Extensibility questions (135)
+            - 733    # Enterprise blog (98)
+            - 735    # Enterprise documentation feedback (39)
+        - tier: 2   # adjacent products
+          categories:
+            - 1635   # Geodatabase questions (2,071)
+            - 79     # ArcGIS Monitor (1,000)
+            - 1030   # ArcGIS REST API questions (1,821)
+        - tier: 3
+          categories:
+            - 737    # Enterprise ideas (1,523): feature requests, useful for "is this supported?"
+
   # Planned (not yet implemented):
-  #   esri_community  - Esri Community forums (check for an API/export before scraping)
   #   esri_docs       - enterprise.arcgis.com docs, release notes, compatibility matrices
   #   github          - Esri org issues/discussions via the GitHub API
   #   reddit          - r/gis via the official API (supplemental)

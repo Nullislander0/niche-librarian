@@ -17,7 +17,7 @@ import importlib.util
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator, Protocol
+from typing import Callable, Iterator, Protocol
 
 from engine.config import SourceConfig
 from engine.crawl.fetcher import Fetcher
@@ -62,6 +62,7 @@ class CrawlContext:
     fetcher: Fetcher
     state: StateStore
     max_requests: int | None = None
+    lookup: Callable[[str], dict | None] | None = None  # read an already-indexed document by doc_id
     log: logging.Logger = field(default_factory=lambda: logging.getLogger("crawl"))
     _start_requests: int = 0
 

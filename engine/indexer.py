@@ -50,7 +50,8 @@ def crawl(pack: Pack, source_ids: list[str] | None = None, max_requests: int | N
             if not src.enabled and not source_ids:
                 continue
             ctx = CrawlContext(source=src, fetcher=fetcher, state=store.state_for(src.id),
-                               max_requests=max_requests, log=logging.getLogger(f"crawl.{src.id}"))
+                               max_requests=max_requests, lookup=store.get_document,
+                               log=logging.getLogger(f"crawl.{src.id}"))
             seen = changed = 0
             status = "complete"
             try:
@@ -67,6 +68,7 @@ def crawl(pack: Pack, source_ids: list[str] | None = None, max_requests: int | N
             except FetchError as e:
                 status = f"error: {e}"
                 log.error("%s failed: %s", src.id, e)
+            store.refresh_top_voted(src.id)
             report[src.id] = {"documents_seen": seen, "new_or_changed": changed,
                               "network_requests": ctx.requests_made, "status": status}
             log.info("%s: %s", src.id, report[src.id])

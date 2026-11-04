@@ -14,7 +14,8 @@ weights:
   source_trust: 0.15      # per-source `trust` in sources.yaml
   accepted_answer: 0.25
   top_voted: 0.1
-  vendor_staff: 0.2
+  vendor_staff: 0.2       # e.g. Esri staff on Esri Community
+  recognized_expert: 0.1  # e.g. Esri MVPs
   first_hand: 0.2         # error text, logs, "this fixed it"
   author_reputation: 0.1
   account_age: 0.05

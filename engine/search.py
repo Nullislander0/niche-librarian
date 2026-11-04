@@ -79,7 +79,8 @@ class Searcher:
                 "source_type": c["source_type"],
                 "kind": c["kind"],
                 "score": round(c["score_total"], 3),
-                "flags": [f for f in ("accepted", "top_voted", "vendor_staff") if c.get(f"is_{f}")],
+                "flags": [f for f in ("accepted", "top_voted", "vendor_staff") if c.get(f"is_{f}")]
+                + (["expert"] if (c.get("extra") or {}).get("recognized_expert") else []),
                 "snippet": snippet(c["text"], query),
             }
             if explain:
@@ -113,6 +114,8 @@ class Searcher:
 def _header(doc: dict, cite: str | None = None) -> str:
     flags = [f for f, k in (("accepted answer", "is_accepted"), ("top voted", "is_top_voted"),
                             ("vendor staff", "is_vendor_staff")) if doc.get(k)]
+    if (doc.get("extra") or {}).get("recognized_expert"):
+        flags.append("recognized expert")
     lines = [
         f"# {doc['title']}" + (f" ({doc['kind']})" if doc["kind"] != "question" else ""),
         f"- cite: {cite or doc['doc_id']}",
@@ -120,7 +123,8 @@ def _header(doc: dict, cite: str | None = None) -> str:
         f"- source: {doc['source']} ({doc['source_type']})",
         f"- posted: {fmt_date(doc['post_date'])}; last activity: {fmt_date(doc['updated_date'])}",
         f"- author: {doc['author'] or 'unknown'}"
-        + (f" (reputation {doc['author_reputation']})" if doc.get("author_reputation") else ""),
+        + (f" (reputation {doc['author_reputation']})" if doc.get("author_reputation") else "")
+        + (f" [{doc['extra']['author_label']}]" if (doc.get("extra") or {}).get("author_label") else ""),
         f"- score: {doc['score']}" + (f"; {', '.join(flags)}" if flags else ""),
         f"- versions: {', '.join(doc['version_tags']) or 'none detected'}",
     ]
