@@ -53,3 +53,14 @@ def test_offline_fetcher_never_touches_network(tmp_path):
     f._cache_write("https://example.invalid/x?a=1", '{"ok": true}')
     assert f.get_json("https://example.invalid/x", {"a": 1}) == {"ok": True}
     assert f.network_requests == 0
+
+
+def test_fetch_token_budget_keeps_priority_order():
+    pack = load_pack("esri_enterprise")
+    store = Store(":memory:", 16)
+    crawl_fixture(pack, store)
+    s = Searcher(pack, store=store, embedder=FakeEmbedder())
+    full = s.fetch("gis_se:q:1001#c0", scope="thread")
+    tight = s.fetch("gis_se:q:1001#c0", scope="thread", max_tokens=1)
+    assert "showing 3" in full and "showing 1" in tight
+    assert "2 more replies not shown" in tight and "gis_se:a:2001#c0" in tight

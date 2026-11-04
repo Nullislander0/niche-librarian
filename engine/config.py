@@ -60,6 +60,7 @@ class Pack:
     versions: dict
     crawler: dict
     synonyms: list = field(default_factory=list)
+    agent: dict = field(default_factory=dict)  # hints for MCP tool descriptions (example queries)
 
     @property
     def db_path(self) -> Path:
@@ -117,5 +118,6 @@ def load_pack(pack_id: str) -> Pack:
         ranking=_read_yaml(path / "ranking.yaml"),
         versions=_read_yaml(path / "versions.yaml"),
         synonyms=_read_yaml(path / "synonyms.yaml").get("groups", []),
+        agent=meta.get("agent") or {},
         crawler={**CRAWLER, **(meta.get("crawler") or {})},
     )

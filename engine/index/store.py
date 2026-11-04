@@ -268,7 +268,8 @@ class Store:
     def get_thread(self, root_id: str) -> list[dict]:
         rows = self.db.execute(
             "SELECT doc_id FROM documents WHERE doc_id=? OR parent_id=? "
-            "ORDER BY doc_id=? DESC, is_accepted DESC, score DESC, post_date",
+            "ORDER BY doc_id=? DESC, is_accepted DESC, is_vendor_staff DESC, "
+            "COALESCE(json_extract(extra, '$.recognized_expert'), 0) DESC, COALESCE(score, 0) DESC, post_date",
             (root_id, root_id, root_id)).fetchall()
         return [self.get_document(r[0]) for r in rows]
 

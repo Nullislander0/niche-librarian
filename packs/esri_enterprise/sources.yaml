@@ -5,6 +5,16 @@ description: >-
   architecture, installation, upgrades, administration and troubleshooting, mostly from
   practitioner Q&A.
 
+# Shown to agents in the MCP tool descriptions.
+agent:
+  good_queries:
+    - "webgisdr backup fails unable to generate token 11.3"
+    - "federate ArcGIS Server with Portal certificate error"
+    - "Data Store upgrade 11.5 to 12.1 validation fails"
+  bad_queries:
+    - "portal"                                       # too vague
+    - "upgrade, federation, SSL and backups in 11.x" # several topics: one call per topic
+
 # Optional crawler overrides (defaults live in engine/config.py).
 # crawler:
 #   min_interval_seconds: 1.0

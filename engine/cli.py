@@ -46,6 +46,7 @@ def main(argv: list[str] | None = None) -> None:
     f = sub.add_parser("fetch", parents=[common], help="print a document by chunk id")
     f.add_argument("chunk_id")
     f.add_argument("--scope", choices=["chunk", "document", "thread"], default="document")
+    f.add_argument("--max-tokens", type=int)
 
     eb = sub.add_parser("eval-build", parents=[common], help="build the known-item eval set (local LLM)")
     eb.add_argument("-n", type=int, default=200)
@@ -53,6 +54,9 @@ def main(argv: list[str] | None = None) -> None:
                     help="'none' leaves queries blank to fill in by hand or another model")
     ev = sub.add_parser("eval", parents=[common], help="run the known-item eval: recall@k and MRR")
     ev.add_argument("--label", default="", help="note stored with the result, e.g. 'synonyms on'")
+    ev.add_argument("--reranker", help="cross-encoder model to test (overrides ranking.yaml); 'off' disables")
+    ev.add_argument("--rerank-candidates", type=int, default=20)
+    ev.add_argument("--alpha", type=float, default=0.7)
 
     sub.add_parser("stats", parents=[common], help="index statistics")
     o = sub.add_parser("outline", parents=[common], help="what the index covers")
@@ -80,7 +84,11 @@ def main(argv: list[str] | None = None) -> None:
         print(json.dumps(build(pack, a.n, rewrite=a.rewrite), indent=2))
     elif a.cmd == "eval":
         from engine.evaluate import run
-        print(json.dumps(run(pack, label=a.label), indent=2))
+        rr = None
+        if a.reranker:
+            rr = {} if a.reranker == "off" else {"model": a.reranker, "candidates": a.rerank_candidates,
+                                                 "alpha": a.alpha}
+        print(json.dumps(run(pack, label=a.label, reranker=rr), indent=2))
     elif a.cmd == "retag":
         from engine.indexer import retag
         print(json.dumps(retag(pack), indent=2))
@@ -102,7 +110,7 @@ def main(argv: list[str] | None = None) -> None:
         print(json.dumps(res, indent=2) if a.json else format_results(res))
     elif a.cmd == "fetch":
         from engine.search import Searcher
-        print(Searcher(pack).fetch(a.chunk_id, a.scope) or f"not found: {a.chunk_id}")
+        print(Searcher(pack).fetch(a.chunk_id, a.scope, a.max_tokens) or f"not found: {a.chunk_id}")
 
 
 if __name__ == "__main__":

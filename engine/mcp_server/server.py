@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import textwrap
 import threading
 
 from mcp.server.mcpserver import MCPServer
@@ -36,54 +37,70 @@ def build_server(pack_id: str) -> MCPServer:
     pack = load_pack(pack_id)
     searcher = Searcher(pack)
     lock = threading.Lock()  # one SQLite connection, tools may run on worker threads
+    hints = pack.agent or {}
+    good = "; ".join(f"'{q}'" for q in hints.get("good_queries", []))
+    bad = "; ".join(f"'{q}'" for q in hints.get("bad_queries", []))
+    examples = (f" Good: {good}." if good else "") + (f" Bad: {bad}." if bad else "")
     server = MCPServer(
         name=f"librarian-{pack.id}",
         instructions=(
             f"Local search index: {pack.name}. {pack.description} "
-            "Call `outline` once to see what it covers. Use `search` to find candidate passages, then `fetch` "
-            "with a chunk_id to read the full text (scope='thread' for the whole discussion) before answering. "
-            "Forum advice varies in quality: prefer accepted answers, vendor staff, and posts matching the "
-            "user's version; say when sources disagree or when nothing relevant was found. "
-            "Cite results by chunk_id and URL. Mention a product version in the query (or pass `version`) "
-            "to rank matching versions higher."
+            "Workflow: call `outline` once to see what is covered; `search` for candidate passages; "
+            "`fetch` the best hits (scope='thread' for a whole discussion) before answering. "
+            "Weigh sources: results flagged 'official' (vendor docs, knowledge base, bug reports) outrank "
+            "forum posts; among forum posts prefer accepted answers, vendor staff, recognized experts, and "
+            "posts on the user's version. Say when sources disagree, when advice is for a different "
+            "version, or when nothing relevant was found. Cite every claim by chunk_id and URL."
         ),
     )
 
-    @server.tool()
+    search_description = textwrap.dedent(f"""\
+        Hybrid keyword + semantic search over the local index, reranked for quality and version.
+
+        Write one specific question or symptom per call; include error text and product names.
+        If the user's question spans several distinct topics, make one call per topic.{examples}
+        If two or three rephrased searches find nothing relevant, stop and say so rather than
+        searching indefinitely.
+
+        Returns compact results: chunk_id (stable, citable), date, versions, source/kind, flags
+        (official, accepted, top_voted, vendor_staff, expert), score, approximate tokens, URL, snippet.
+
+        Args:
+            query: the question or symptom, e.g. an error message plus the component involved.
+            limit: max results (1-50).
+            version: the user's product version, e.g. "11.3" or "10.9.1" ("11" = any 11.x).
+                Pass it whenever known: matching versions rank higher.
+            version_mode: "boost" (default) ranks matching versions higher; "filter" keeps only them
+                (drops the many posts that never state a version, so use sparingly).
+            date_from / date_to: ISO dates (YYYY-MM-DD) bounding the post date.
+            source_type: e.g. "docs", "kb", "bug", "forum" (see `outline`).
+            source: a source id from `outline`.
+            explain: include the per-signal scoring breakdown.
+        """).strip()
+
+    @server.tool(description=search_description)
     def search(query: str, limit: int = 10, version: str | None = None, version_mode: str = "boost",
                date_from: str | None = None, date_to: str | None = None,
                source_type: str | None = None, source: str | None = None, explain: bool = False) -> str:
-        """Hybrid keyword + semantic search over the local index.
-
-        Returns compact results: chunk_id (stable, citable), date, detected versions, source, flags
-        (accepted / top_voted / vendor_staff), score, URL, and a short snippet.
-
-        Args:
-            query: natural-language question or keywords; error text works well.
-            limit: max results (1-50).
-            version: product version to prefer, e.g. "11.3" or "10.9.1"; "11" matches all 11.x.
-            version_mode: "boost" ranks matching versions higher (default); "filter" keeps only them.
-            date_from / date_to: ISO dates (YYYY-MM-DD) bounding the post date.
-            source_type: e.g. "forum", "docs", "blog", "issue", "talk".
-            source: a source id from index_info.
-            explain: include per-signal scoring breakdown.
-        """
         with lock:
             res = searcher.search(query, max(1, min(limit, 50)), version, version_mode, date_from, date_to,
                                   source_type, source, explain)
         return format_results(res)
 
     @server.tool()
-    def fetch(chunk_id: str, scope: str = "document") -> str:
+    def fetch(chunk_id: str, scope: str = "document", max_tokens: int = 6000) -> str:
         """Full text of a result as clean markdown, with citation metadata.
 
         Args:
             chunk_id: id from search results, e.g. "gis_se:a:12345#c0".
-            scope: "chunk" (just that passage), "document" (the whole post, default),
-                   or "thread" (question plus all answers, accepted first).
+            scope: "chunk" (just that passage), "document" (the whole post or page, default),
+                   or "thread" (question plus replies: accepted answer, vendor staff, experts and
+                   top-voted first).
+            max_tokens: approximate output budget (default 6000). Content beyond it is listed by id
+                so you can fetch specific parts; raise it only when you need the whole thread.
         """
         with lock:
-            text = searcher.fetch(chunk_id, scope)
+            text = searcher.fetch(chunk_id, scope, max_tokens)
         return text if text is not None else f"No document for {chunk_id!r}."
 
     @server.tool()

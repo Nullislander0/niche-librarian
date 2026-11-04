@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+rerank = ["fastembed>=0.9"]  # optional cross-encoder rerank stage (ONNX Runtime, no PyTorch)
 
 [project.scripts]
 librarian = "engine.cli:main"

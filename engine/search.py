@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from engine.config import EMBEDDING, Pack
 from engine.index.embed import EmbeddingUnavailable, OllamaEmbedder
 from engine.index.store import Filters, Store
+from engine.rank.cross import CrossReranker
 from engine.rank.rerank import Ranker, rrf
 from engine.synonyms import Synonyms
 from engine.versions import VersionTagger, version_key
@@ -52,6 +53,7 @@ class Searcher:
         self.tagger = VersionTagger(pack.versions)
         self.ranker = Ranker(pack.ranking, {s.id: s.trust for s in pack.sources})
         self.synonyms = Synonyms(pack.synonyms)
+        self.cross = CrossReranker.from_config(pack.ranking.get("reranker"))
 
     def search(self, query: str, limit: int = 10, version: str | None = None, version_mode: str = "boost",
                date_from: str | None = None, date_to: str | None = None, source_type: str | None = None,
@@ -73,6 +75,9 @@ class Searcher:
                 pass
         fused = rrf(lists, self.ranker.rrf_k)
         candidates = self.store.load_chunks(list(fused))
+        if self.cross:
+            fused = self.cross.rescore(query, candidates, fused)
+            mode += "+rerank"
         ranked = self.ranker.rank(candidates, fused, query, query_versions, limit, explain)
 
         results = []
@@ -99,8 +104,12 @@ class Searcher:
         return {"query": query, "mode": mode, "query_versions": query_versions,
                 "expanded_with": expansions, "results": results}
 
-    def fetch(self, chunk_id: str, scope: str = "document") -> str | None:
-        """Full text as markdown. scope: chunk | document | thread."""
+    def fetch(self, chunk_id: str, scope: str = "document", max_tokens: int | None = None) -> str | None:
+        """Full text as markdown. scope: chunk | document | thread.
+
+        max_tokens caps the output (approximate). Threads are ordered question, accepted answer,
+        vendor staff, recognized experts, then by votes; posts beyond the budget are listed by id.
+        A long document is cut at a chunk boundary and the remaining chunk ids are listed."""
         chunk = self.store.get_chunk(chunk_id)
         doc_id = chunk["doc_id"] if chunk else chunk_id.split("#")[0]
         doc = self.store.get_document(doc_id)
@@ -110,10 +119,37 @@ class Searcher:
             return _header(doc, chunk_id) + "\n\n" + chunk["text"]
         if scope == "thread":
             root = doc["parent_id"] or doc["doc_id"]
-            parts = [_render(d) for d in self.store.get_thread(root)]
+            posts = self.store.get_thread(root)
+            parts, used, omitted = [], 0, []
+            for d in posts:
+                text = _render(d)
+                if omitted or (max_tokens and parts and used + tokens(text) > max_tokens):
+                    omitted.append(d)  # keep priority order: once over budget, list the rest
+                    continue
+                parts.append(text)
+                used += tokens(text)
             body = "\n\n---\n\n".join(parts)
-            return f"<!-- thread {root}; {len(parts)} posts; ~{tokens(body)} tokens; requested {chunk_id} -->\n\n" + body
-        return _render(doc, chunk_id)
+            head = f"<!-- thread {root}; {len(posts)} posts; showing {len(parts)} (~{used} tokens); requested {chunk_id} -->"
+            if omitted:
+                body += "\n\n---\n\n" + f"{len(omitted)} more replies not shown (budget {max_tokens} tokens); " \
+                        "fetch any by id: " + ", ".join(
+                            f"{d['doc_id']}#c0 (score {d['score']}, {fmt_date(d['post_date'])})" for d in omitted[:30])
+            return head + "\n\n" + body
+        text = _render(doc, chunk_id)
+        if max_tokens and tokens(text) > max_tokens:
+            chunks = self.store.db.execute("SELECT chunk_id, text FROM chunks WHERE doc_id=? ORDER BY ord",
+                                           (doc["doc_id"],)).fetchall()
+            out, used, rest = [_header(doc, chunk_id)], tokens(_header(doc, chunk_id)), []
+            for cid, ctext in chunks:
+                if rest or (used + tokens(ctext) > max_tokens and len(out) > 1):
+                    rest.append(cid)
+                    continue
+                out.append(ctext)
+                used += tokens(ctext)
+            text = "\n\n".join(out)
+            if rest:
+                text += f"\n\n[{len(rest)} more sections not shown; fetch with scope='chunk': {', '.join(rest)}]"
+        return text
 
     def outline(self, source: str | None = None) -> str:
         """A map of what the index holds, for an agent to read before searching."""

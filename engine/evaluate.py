@@ -96,8 +96,13 @@ def build(pack: Pack, n: int = 200, seed: int = 7, since: str = "2018-01-01", re
     return {"candidates": len(rows), "written": made, "path": str(path)}
 
 
-def run(pack: Pack, k: int = 10, label: str = "") -> dict:
+def run(pack: Pack, k: int = 10, label: str = "", reranker: dict | None = None) -> dict:
+    """reranker overrides ranking.yaml's `reranker` block for this run ({} turns it off)."""
     s = Searcher(pack)
+    if reranker is not None:
+        from engine.rank.cross import CrossReranker
+        s.cross = CrossReranker.from_config(reranker)
+    t0 = time.time()
     cases = [json.loads(line) for line in eval_path(pack).read_text().splitlines() if line.strip()]
     cases = [c for c in cases if c.get("query")]  # blank = not yet rewritten
     ranks, per_source, misses = [], {}, []
@@ -121,6 +126,8 @@ def run(pack: Pack, k: int = 10, label: str = "") -> dict:
                 "mrr": round(sum(1 / r for r in rs if r) / n, 3)}
 
     out = {"label": label, "date": time.strftime("%Y-%m-%d %H:%M"), "overall": summary(ranks),
+           "reranker": (s.cross.__dict__ if s.cross else None),
+           "seconds_per_query": round((time.time() - t0) / max(1, len(cases)), 2),
            "by_source": {src: summary(rs) for src, rs in per_source.items()}}
     with (eval_path(pack).with_suffix(".results.jsonl")).open("a") as f:
         f.write(json.dumps(out) + "\n")
