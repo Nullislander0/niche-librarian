@@ -29,6 +29,9 @@ sources:
           tags: [arcgis-server]           # 2749
         - tier: 3
           tags: [enterprise-geodatabase]  # 1478
+        - tier: 4   # admin automation and server extensions (added 2026-11-04)
+          tags: [arcgis-rest-api, arcgis-python-api, arcgis-license-manager,  # 374, 185, 97
+                 arcgis-notebook, server-object-extension, arcgis-image-server]  # 45, 38, 14
 
   - id: esri_community
     parser: vanilla
@@ -53,6 +56,7 @@ sources:
             - {id: 736, name: Extensibility questions}  # 135
             - {id: 733, name: Enterprise blog}  # 98
             - {id: 735, name: Enterprise documentation feedback}  # 39
+            - {id: 170, name: Software security and privacy}  # 66: patches, CVEs, hardening
         - tier: 2   # adjacent products
           categories:
             - {id: 1635, name: Geodatabase questions}  # 2,071
@@ -61,6 +65,18 @@ sources:
         - tier: 3
           categories:
             - {id: 737, name: Enterprise ideas}  # 1,523: feature requests, useful for "is this supported?"
+        - tier: 4   # server roles and apps deployed on Enterprise (added 2026-11-04)
+          categories:
+            - {id: 68, name: GeoEvent Server}  # 1,469
+            - {id: 4, name: Image Server}  # 504
+            - {id: 100, name: Workflow Manager}  # 782
+            - {id: 82, name: ArcGIS Notebooks}  # 316
+            - {id: 67, name: GeoAnalytics Server}  # 74
+        - tier: 5   # broader, noisier
+          categories:
+            - {id: 157, name: ArcGIS API for Python}  # 2,913: admin automation
+            - {id: 96, name: Utility Network}  # 1,628
+            - {id: 2572, name: Utility Network articles}  # 60
 
   - id: esri_docs
     parser: sitemap_html
