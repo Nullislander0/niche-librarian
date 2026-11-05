@@ -56,7 +56,7 @@ class Ranker:
         self.max_per_thread = int(cfg.get("max_per_thread", 2))
         rec = cfg.get("recency") or {}
         self.half_life = float(rec.get("half_life_days", 730))
-        self.sensitive = [t.lower() for t in rec.get("version_sensitive_terms", [])]
+        self.sensitive = [str(t).lower() for t in rec.get("version_sensitive_terms", [])]
         auth = cfg.get("author") or {}
         self.author_default = auth.get("default", {"reputation_ceiling": 10000, "age_ceiling_years": 8})
         self.author_per_source = auth.get("per_source", {})

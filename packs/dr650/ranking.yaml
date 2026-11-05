@@ -25,7 +25,7 @@ weights:
 
 recency:
   half_life_days: 1825
-  version_sensitive_terms: [price, available, discontinued, in stock, new model, 2025, 2026]
+  version_sensitive_terms: [price, available, discontinued, in stock, new model, "2025", "2026"]
 
 author:
   default: {reputation_ceiling: 20000, age_ceiling_years: 15}
