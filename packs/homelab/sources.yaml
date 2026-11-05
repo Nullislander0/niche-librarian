@@ -151,16 +151,26 @@ sources:
   - id: proxmox_forum
     parser: xenforo2
     source_type: forum
-    trust: 0.8
-    enabled: false
-    access: {checked: 2026-11-05, robots: allowed, method: XenForo 2 HTML, auth: none, verdict: ok,
-             notes: "needs the xenforo2 parser (not written yet)"}
+    trust: 0.85
+    access: {checked: 2026-11-05, robots: allowed, method: XenForo 2 HTML, auth: none, verdict: ok}
+    options:
+      base_url: https://forum.proxmox.com/
+      since: "2024-01-01"
+      max_pages_per_thread: 10          # long announcement threads: page 1 + the newest pages
+      staff_title: 'Proxmox Staff Member'
+      expert_title: 'Famous Member|Distinguished Member'
+      post_count_labels: [Messages]
+      forums:
+        - {path: forums/proxmox-ve-installation-and-configuration.16/, name: "Proxmox VE: Installation and configuration"}
+        - {path: forums/proxmox-ve-networking-and-firewall.17/, name: "Proxmox VE: Networking and Firewall"}
+        - {path: forums/proxmox-backup-installation-and-configuration.24/, name: "Proxmox Backup: Installation and configuration"}
+        - {path: forums/security-advisories.26/, name: Security Advisories}
   - id: servethehome
     parser: xenforo2
     source_type: forum
     trust: 0.7
     enabled: false
     access: {checked: 2026-11-05, robots: allowed, method: XenForo 2 HTML, auth: none, verdict: ok,
-             notes: "needs the xenforo2 parser (not written yet)"}
+             notes: "parser exists (xenforo2); forum selection and a sample crawl still to do"}
   # Excluded by choice: Home Assistant community (~235k topics; home automation is its own pack).
   # Later: GitHub issues (needs GITHUB_TOKEN), Reddit r/homelab, r/selfhosted (needs an app key; read Reddit's terms).
