@@ -6,11 +6,14 @@ from engine.parsers.xenforo2 import Parser, page_count, parse_posts, parse_threa
 from test_pipeline import DictState
 
 
+STICKY = '<i class="structItem-status structItem-status--sticky"></i>'
+
+
 def listing(items, pages=1):
     nav = "".join(f'<li class="pageNav-page "><a href="/forums/g.1/page-{p}">{p}</a></li>' for p in range(1, pages + 1))
     rows = "".join(
         f'<div class="structItem structItem--thread js-threadListItem-{tid}" data-author="a">'
-        f'{"<i class=\"structItem-status structItem-status--sticky\"></i>" if sticky else ""}'
+        f'{STICKY if sticky else ""}'
         f'<div class="structItem-title" uix-href="/threads/t.{tid}/"><a href="/threads/t.{tid}/">Thread {tid}</a></div>'
         + "".join(f'<a href="/threads/t.{tid}/page-{p}">{p}</a>' for p in range(2, tpages + 1))
         + f'<time class="u-dt" data-timestamp="{last}">x</time></div>'
