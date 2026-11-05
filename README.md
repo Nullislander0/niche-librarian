@@ -202,7 +202,32 @@ after a few empty searches, and say when sources disagree.
 ## Writing your own pack
 
 A pack is a folder under `packs/` holding a few YAML files. Copy `packs/homelab/` as a
-starting point.
+starting point. The full field guide, covering access rules, scoping and platform quirks,
+is [docs/SOURCING.md](docs/SOURCING.md).
+
+### Building a recipe, step by step
+
+1. **Pick a narrow niche.** "Home servers" or "one product's administration" works; "all of
+   tech" doesn't. Write one sentence on who the pack is for. It becomes the pack's
+   `description`, which agents read.
+2. **List where practitioners actually go:** vendor docs, the vendor's community, the
+   independent forum everyone recommends, the relevant Stack Exchange tags, a wiki. Ask
+   someone who does the work.
+3. **Check each site's access** before writing any config: robots.txt, one plain request,
+   whether there's an API or sitemap, and its rough size. See
+   [the checklist](docs/SOURCING.md#2-checking-a-site-before-adding-it). Drop anything that
+   blocks or challenges the crawler.
+4. **Match each source to a parser** (table below). If one fits, the source is config only.
+   If none does, write a parser (see below) and test it against a hand-written fixture.
+5. **Scope each source:** categories or tags, a `since:` date, slug filters, caps for
+   megathreads. Estimate requests × pacing before you run anything.
+6. **Write `versions.yaml` and `synonyms.yaml`** for the niche's version numbers, codenames
+   and abbreviations. Check them with `librarian retag` and a few searches.
+7. **Run `librarian crawl --sample 50`.** About 15 minutes proves every source works end to
+   end. Read a few results with `librarian search ... --explain` and `librarian fetch`.
+8. **Measure, then tune.** If a source has accepted answers, build a retrieval test
+   (`eval-build`, `eval`) and change ranking or synonyms only when the numbers improve.
+9. **Run the full crawl,** then share the recipe. The repo never includes the data.
 
 | File | What it holds |
 |---|---|
@@ -221,6 +246,7 @@ starting point.
 | `stackexchange` | Any Stack Exchange site, through the official API |
 | `vanilla` | Vanilla Forums communities, through API v2 |
 | `xenforo1` | XenForo 1.x forums (HTML; respects robots.txt) |
+| `xenforo2` | XenForo 2.x forums (HTML): forum listings by latest activity, thread pages, staff and user-panel fields |
 
 **Record how you checked access.** Every source gets an `access:` block. A source whose
 verdict is `blocked` or `needs-key` is never crawled:
@@ -298,6 +324,9 @@ Rules for parsers:
 - **Recipe, not data.** Crawled content is never committed or redistributed.
 - **Nothing private in the repo:** no client data, hostnames, internal URLs or credentials,
   in code, configs or fixtures.
+
+The reasoning behind these rules, the access-check checklist, scoping advice and per-platform
+notes are in [docs/SOURCING.md](docs/SOURCING.md).
 
 ## Layout
 
