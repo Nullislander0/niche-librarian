@@ -284,3 +284,8 @@ packs/esri_enterprise/
   sources.yaml  versions.yaml  ranking.yaml  synonyms.yaml  parsers/
 tests/
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE). This covers the code and configs only: crawled content belongs
+to its authors and sites, and is never part of this repository.
