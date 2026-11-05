@@ -174,3 +174,27 @@ def test_backfill_walks_a_date_cursor(pack):
     assert q[0]["min"] is None and q[1]["min"] == 200 and "page" not in q[1]
     assert q[2]["sort"] == "activity" and q[2]["min"] == 900
     assert state["tag:gis:t"] == {"phase": "incremental", "cursor": 900, "watermark": 900}
+
+
+def test_sample_stops_each_source_after_n_threads(tmp_path, monkeypatch):
+    from engine import config, indexer
+    from engine.parsers import base
+
+    class Many:
+        POSITION_KEY_PREFIXES = ("x",)
+
+        def __init__(self, ctx):
+            self.ctx = ctx
+
+        def crawl(self):
+            for i in range(10):
+                yield base.Document(doc_id=f"s:{i}", source="gis_se", source_type="forum", kind="question",
+                                    url="u", title=f"t{i}", content_md="body")
+                yield base.Document(doc_id=f"s:{i}:r", source="gis_se", source_type="forum", kind="answer",
+                                    url="u", title=f"t{i}", content_md="reply", parent_id=f"s:{i}")
+
+    pack = load_pack("esri_enterprise")
+    monkeypatch.setattr(type(pack), "db_path", property(lambda self: tmp_path / "t.db"))
+    monkeypatch.setattr(indexer, "load_parser", lambda name, path: Many)
+    report = indexer.crawl(pack, ["gis_se"], embed=False, sample=3)
+    assert report["gis_se"]["documents_seen"] == 6 and report["gis_se"]["status"].startswith("sampled")

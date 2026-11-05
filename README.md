@@ -51,11 +51,13 @@ export LIBRARIAN_PACK=homelab     # or pass --pack homelab to each command
 .venv/bin/librarian sources       # how each source is accessed, and when that was checked
 ```
 
-**3. Crawl.** Try a small sample first, then run the full crawl:
+**3. Crawl a sample first.** `--sample 50` stops each source after 50 threads or pages: a
+walk around the block that proves every source works, in about 15 minutes. Run the full
+crawl once you're happy with it.
 
 ```bash
-.venv/bin/librarian crawl --max-requests 10   # a few requests per source, to see it work
-.venv/bin/librarian crawl                     # full first crawl (see "What to expect" below)
+.venv/bin/librarian crawl --sample 50   # quick end-to-end test of the pack
+.venv/bin/librarian crawl               # full first crawl (see "What to expect" below)
 ```
 
 **4. Search from the terminal**, to see what you got:
@@ -136,7 +138,7 @@ Keep keys in your shell environment, never in the repo.
 ## Everyday commands
 
 ```bash
-librarian crawl [--source ID] [--max-requests N]   # fetch and index; incremental and resumable
+librarian crawl [--source ID] [--sample N] [--max-requests N]   # fetch and index; resumable
 librarian sources                                  # sources and their access records
 librarian outline                                  # what the index covers: sources, boards, tags, versions
 librarian search "query" [--version 11.3] [--explain]

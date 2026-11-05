@@ -25,6 +25,8 @@ def main(argv: list[str] | None = None) -> None:
     c.add_argument("--source", action="append", help="only this source id (repeatable)")
     c.add_argument("--max-requests", type=int, help="network request budget per source for this run")
     c.add_argument("--no-embed", action="store_true", help="skip embedding new chunks")
+    c.add_argument("--sample", type=int, metavar="N",
+                   help="stop each source after N threads/pages: a quick end-to-end test of a pack")
 
     r = sub.add_parser("rebuild", parents=[common], help="re-parse saved API responses (no network)")
     r.add_argument("--source", action="append", help="only this source id (repeatable)")
@@ -83,7 +85,8 @@ def main(argv: list[str] | None = None) -> None:
     with stay_awake(f"librarian {a.cmd} ({a.pack})") if long_job else contextlib.nullcontext():
         if a.cmd == "crawl":
             from engine.indexer import crawl
-            print(json.dumps(crawl(pack, a.source, a.max_requests, embed=not a.no_embed), indent=2))
+            print(json.dumps(crawl(pack, a.source, a.max_requests, embed=not a.no_embed, sample=a.sample),
+                             indent=2))
         elif a.cmd == "rebuild":
             from engine.indexer import crawl
             print(json.dumps(crawl(pack, a.source, offline=True), indent=2))

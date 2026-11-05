@@ -45,10 +45,14 @@ class _MemoryState(dict):
 
 
 def crawl(pack: Pack, source_ids: list[str] | None = None, max_requests: int | None = None,
-          embed: bool = True, offline: bool = False) -> dict:
+          embed: bool = True, offline: bool = False, sample: int | None = None) -> dict:
     """Fetch and index. offline=True replays saved API responses from data/cache (a rebuild):
     no network, and crawl state starts fresh in memory so the real resume points are untouched.
-    Unchanged documents keep their chunks and embeddings."""
+    Unchanged documents keep their chunks and embeddings.
+
+    sample=N stops each source after N top-level documents (threads, pages): a quick test
+    that a pack works end to end. Sources that list all threads before their replies
+    (e.g. vanilla) will show threads without replies in a sample."""
     store = open_store(pack)
     fetcher = make_fetcher(pack, offline=offline)
     tagger = VersionTagger(pack.versions)
@@ -72,10 +76,15 @@ def crawl(pack: Pack, source_ids: list[str] | None = None, max_requests: int | N
             ctx = CrawlContext(source=src, fetcher=fetcher, state=state,
                                max_requests=max_requests, lookup=store.get_document,
                                log=logging.getLogger(f"crawl.{src.id}"))
-            seen = changed = 0
+            seen = changed = roots = 0
             status = "complete"
             try:
                 for doc in parser_cls(ctx).crawl():
+                    if sample and doc.parent_id is None:
+                        roots += 1
+                        if roots > sample:
+                            status = f"sampled: first {sample} threads/pages"
+                            break
                     seen += 1
                     changed += index_document(store, tagger, doc)
                     if seen % 200 == 0:
