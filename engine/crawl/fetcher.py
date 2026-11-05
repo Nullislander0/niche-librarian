@@ -173,7 +173,7 @@ class Fetcher:
     def _cache_read(self, url: str, ttl: int) -> str | None:
         path = self._cache_path(url)
         try:
-            entry = json.loads(path.read_text())
+            entry = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
         if time.time() - entry["fetched_at"] > ttl:
@@ -183,7 +183,7 @@ class Fetcher:
     def _cache_write(self, url: str, body: str) -> None:
         path = self._cache_path(url)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"url": url, "fetched_at": time.time(), "body": body}))
+        path.write_text(json.dumps({"url": url, "fetched_at": time.time(), "body": body}), encoding="utf-8")
 
 
 def build_url(url: str, params: dict | None) -> str:

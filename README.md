@@ -4,8 +4,11 @@ A local, targeted search index for AI agents. It crawls a hand-picked list of so
 one niche topic, stores them with useful metadata, and gives an agent fast hybrid search
 over MCP.
 
-The first topic pack covers **Esri ArcGIS Enterprise**: architecture, administration, and
-practitioner experience.
+Two topic packs are included:
+- **`esri_enterprise`:** Esri ArcGIS Enterprise architecture, administration and practitioner
+  experience, from GIS Stack Exchange, Esri Community, and Esri's docs, knowledge base and bug
+  database.
+- **`dr650`:** Suzuki DR650 builds, mods and long-term ownership, from ADVrider.
 
 This repo ships the recipe (code, configs and source lists), never crawled content. You run
 the crawl yourself, and the data stays in `data/`, which is gitignored.
@@ -42,7 +45,10 @@ backlink weighting, no keyword-stuffing rewards and no blanket freshness bias.
 ## Setup
 
 Requires Python 3.11+ and [Ollama](https://ollama.com) for embeddings. Without Ollama,
-search still works in keyword-only mode.
+search still works in keyword-only mode. It's developed on Linux; the tests also run on
+Windows and macOS in CI.
+
+**Linux / macOS**
 
 ```bash
 python3 -m venv .venv
@@ -50,6 +56,26 @@ python3 -m venv .venv
 ollama pull nomic-embed-text
 .venv/bin/pytest
 ```
+
+**Windows (PowerShell)**
+
+```powershell
+py -3 -m venv .venv
+.venv\Scripts\pip install -e ".[dev,rerank]"
+ollama pull nomic-embed-text
+.venv\Scripts\pytest
+```
+
+The examples below use the Linux and macOS path `.venv/bin/librarian`. On Windows, use
+`.venv\Scripts\librarian.exe` instead.
+
+Platform notes:
+- **Sleep:** long jobs keep the machine awake automatically. On Linux this uses the desktop
+  idle inhibit plus `systemd-inhibit`, on Windows `SetThreadExecutionState`, and on macOS
+  `caffeinate`. See `engine/awake.py`.
+- **macOS:** the python.org and Homebrew builds of Python support the SQLite extensions that
+  `sqlite-vec` needs. Apple's bundled `/usr/bin/python3` may not, so use a python.org or
+  Homebrew Python.
 
 ## Crawl and search
 
@@ -98,16 +124,22 @@ If you change the embedding model, run `librarian embed --reset` afterwards.
 
 ## Connect an agent (MCP)
 
-The server runs over stdio: `librarian serve --pack esri_enterprise`. Use absolute paths
-in the configs below.
+The server runs over stdio: `librarian serve --pack <pack>`. Each pack is its own server,
+with its own database and tools, so register one per topic you want an agent to use. Use
+absolute paths in the configs below.
 
 **Claude Code**
 
 ```bash
+# Linux / macOS
 claude mcp add esri-librarian --scope user -- /ABS/PATH/.venv/bin/librarian serve --pack esri_enterprise
+# Windows
+claude mcp add esri-librarian --scope user -- C:\ABS\PATH\.venv\Scripts\librarian.exe serve --pack esri_enterprise
 ```
 
-**Claude Desktop.** Edit `claude_desktop_config.json` (Settings → Developer → Edit Config):
+**Claude Desktop.** Edit `claude_desktop_config.json` (Settings → Developer → Edit Config).
+The file lives in `~/Library/Application Support/Claude/` on macOS, `%APPDATA%\Claude\` on
+Windows, and `~/.config/Claude/` on Linux.
 
 ```json
 {
@@ -115,10 +147,17 @@ claude mcp add esri-librarian --scope user -- /ABS/PATH/.venv/bin/librarian serv
     "esri-librarian": {
       "command": "/ABS/PATH/.venv/bin/librarian",
       "args": ["serve", "--pack", "esri_enterprise"]
+    },
+    "dr650-librarian": {
+      "command": "/ABS/PATH/.venv/bin/librarian",
+      "args": ["serve", "--pack", "dr650"]
     }
   }
 }
 ```
+
+On Windows, use `"command": "C:\\ABS\\PATH\\.venv\\Scripts\\librarian.exe"`. JSON needs the
+backslashes doubled.
 
 Tools:
 

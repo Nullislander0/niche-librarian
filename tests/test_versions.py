@@ -3,7 +3,7 @@ import yaml
 from engine.config import PACKS_DIR
 from engine.versions import VersionTagger, version_matches
 
-cfg = yaml.safe_load((PACKS_DIR / "esri_enterprise" / "versions.yaml").read_text())
+cfg = yaml.safe_load((PACKS_DIR / "esri_enterprise" / "versions.yaml").read_text(encoding="utf-8"))
 t = VersionTagger(cfg)
 
 

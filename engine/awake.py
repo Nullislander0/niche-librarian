@@ -1,10 +1,13 @@
 """Keep the machine awake while a long job runs, and only then.
 
-Two requests are held for the duration of the `with` block and released after it:
-  1. Desktop idle inhibit via the xdg-desktop-portal Inhibit API (flag 8 = idle), the
-     same mechanism a video player uses. Desktop idle-suspend (e.g. COSMIC's) honours this.
-  2. A logind sleep/idle inhibitor (`systemd-inhibit`), for runs with no desktop session.
-Either may be unavailable; failures are logged and the job runs anyway.
+Per platform, for the duration of the `with` block:
+  Linux    a desktop idle inhibit via the xdg-desktop-portal Inhibit API (flag 8 = idle, the
+           mechanism video players use; desktop idle-suspend such as COSMIC's honours it), plus
+           a logind sleep/idle inhibitor (`systemd-inhibit`) for runs with no desktop session
+  Windows  SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED); the display may
+           still turn off
+  macOS    `caffeinate -i -w <pid>` (prevents idle sleep; exits with this process)
+Anything unavailable is logged and skipped; the job runs regardless.
 Set LIBRARIAN_NO_STAY_AWAKE=1 to disable.
 """
 from __future__ import annotations
@@ -14,9 +17,14 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 
 log = logging.getLogger(__name__)
 
+ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+
+
+# -- Linux ---------------------------------------------------------------
 
 def _portal_inhibit(reason: str):
     """Return an open D-Bus connection holding an idle inhibit, or None."""
@@ -54,21 +62,68 @@ def _logind_inhibit(reason: str):
         return None
 
 
+# -- Windows and macOS -----------------------------------------------------
+
+def _windows_inhibit():
+    """Returns a release function, or None."""
+    try:
+        import ctypes
+        set_state = ctypes.windll.kernel32.SetThreadExecutionState
+    except (ImportError, AttributeError, OSError) as e:
+        log.debug("SetThreadExecutionState unavailable: %s", e)
+        return None
+    if not set_state(ES_CONTINUOUS | ES_SYSTEM_REQUIRED):
+        return None
+    return lambda: set_state(ES_CONTINUOUS)
+
+
+def _macos_inhibit():
+    exe = shutil.which("caffeinate")
+    if not exe:
+        return None
+    try:
+        return subprocess.Popen([exe, "-i", "-w", str(os.getpid())],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as e:
+        log.debug("caffeinate unavailable: %s", e)
+        return None
+
+
+def _stop(proc) -> None:
+    if proc:
+        proc.terminate()
+        with contextlib.suppress(Exception):
+            proc.wait(timeout=5)
+
+
 @contextlib.contextmanager
 def stay_awake(reason: str = "niche-librarian job running"):
     if os.environ.get("LIBRARIAN_NO_STAY_AWAKE"):
         yield
         return
-    conn, proc = _portal_inhibit(reason), _logind_inhibit(reason)
-    held = [n for n, h in (("desktop idle", conn), ("logind", proc)) if h]
+    releases, held = [], []
+    if sys.platform.startswith("linux"):
+        conn, proc = _portal_inhibit(reason), _logind_inhibit(reason)
+        if conn:
+            held.append("desktop idle")
+            releases.append(lambda: conn.close())
+        if proc:
+            held.append("logind")
+            releases.append(lambda: _stop(proc))
+    elif sys.platform == "win32":
+        release = _windows_inhibit()
+        if release:
+            held.append("SetThreadExecutionState")
+            releases.append(release)
+    elif sys.platform == "darwin":
+        proc = _macos_inhibit()
+        if proc:
+            held.append("caffeinate")
+            releases.append(lambda: _stop(proc))
     log.info("keeping the machine awake (%s)", ", ".join(held) or "no inhibitor available")
     try:
         yield
     finally:
-        if conn:
+        for release in releases:
             with contextlib.suppress(Exception):
-                conn.close()
-        if proc:
-            proc.terminate()
-            with contextlib.suppress(Exception):
-                proc.wait(timeout=5)
+                release()

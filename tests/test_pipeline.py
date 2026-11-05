@@ -31,7 +31,7 @@ class FakeFetcher:
             ids = url.rsplit("/", 1)[1].split(";")
             return {"items": [{"user_id": int(i), "creation_date": 1400000000, "reputation": 1} for i in ids],
                     "quota_remaining": 280}
-        return json.loads((FIX / "se_questions.json").read_text())
+        return json.loads((FIX / "se_questions.json").read_text(encoding="utf-8"))
 
     def pause_host(self, url, seconds):
         pass
