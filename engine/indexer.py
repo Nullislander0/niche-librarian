@@ -121,11 +121,11 @@ def retag(pack: Pack) -> dict:
     changed = 0
     try:
         # Roots first so replies can inherit their thread's tags.
-        rows = db.execute("SELECT doc_id, source, parent_id, title, content_md, tags, version_tags FROM documents "
+        rows = db.execute("SELECT doc_id, source, parent_id, title, content_md, tags, extra, version_tags FROM documents "
                           "ORDER BY parent_id IS NOT NULL").fetchall()
         for r in rows:
             text = "\n".join([r["title"] or "", r["content_md"] or "", " ".join(json.loads(r["tags"] or "[]"))])
-            versions = set(tagger.tag(text, r["source"]))
+            versions = set(tagger.tag(text, r["source"])) | set(json.loads(r["extra"] or "{}").get("versions") or [])
             if r["parent_id"]:
                 versions |= set(store.get_version_tags(r["parent_id"]))
             new = json.dumps(sorted(versions, key=version_key))

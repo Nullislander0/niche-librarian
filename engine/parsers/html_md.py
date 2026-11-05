@@ -89,7 +89,9 @@ class _Converter(HTMLParser):
                 pass
             self.skip = 1
             return
-        if tag in ("p", "div", "section", "article", "figure", "table"):
+        if tag in ("p", "div") and self.cell:
+            self._emit(" ")  # paragraphs inside a table cell stay on the row
+        elif tag in ("p", "div", "section", "article", "figure", "table"):
             if self.lists and tag in ("p", "div"):
                 if not self._at_list_marker():  # <li><p>a</p><p>b</p></li>: b continues the item
                     self._newline(1)
@@ -107,6 +109,7 @@ class _Converter(HTMLParser):
         elif tag == "dd":
             self._emit(": ")
         elif tag in ("td", "th"):
+            self.cell += 1
             self._emit(" ")
         elif tag == "br":
             self._emit("\n" if self.pre else "  \n")
@@ -160,9 +163,12 @@ class _Converter(HTMLParser):
         if self.skip:
             self.skip -= 1
             return
-        if tag in ("p", "div", "section", "article", "figure", "table") or re.fullmatch(r"h[1-6]", tag):
+        if tag in ("p", "div") and self.cell:
+            pass
+        elif tag in ("p", "div", "section", "article", "figure", "table") or re.fullmatch(r"h[1-6]", tag):
             self._newline(1 if self.lists and tag in ("p", "div") else 2)
         elif tag in ("td", "th"):
+            self.cell = max(0, self.cell - 1)
             self._emit(" |")
         elif tag == "dt":
             self._emit("**")

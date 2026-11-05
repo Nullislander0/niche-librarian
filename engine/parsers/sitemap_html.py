@@ -14,6 +14,9 @@ Options (sources.yaml):
   content: {tag: article, id: main}      # element holding the page body (or class:)
   title_strip: ' \\| .*documentation$'    # regex removed from the page title
   version_meta: version                  # <meta name="version"> -> explicit version tag
+  version_prefix: pro                    # ...tagged "pro 3.7" (for packs with several products)
+  version_prefix_by:                     # or choose the prefix from another meta tag, first match wins
+    - {meta: product, match: 'ArcGIS Pro', prefix: pro}
   date_meta: last-modified               # <meta name=...> -> post/updated date
   refresh_days: 30                       # re-fetch pages older than this
   meta_filter: {product: 'Enterprise|Portal'}  # keep a page only if every listed meta tag
@@ -117,6 +120,9 @@ class Parser:
         self.content = o.get("content", {"tag": "main"})
         self.title_strip = re.compile(o["title_strip"]) if o.get("title_strip") else None
         self.version_meta = o.get("version_meta")
+        self.version_prefix = o.get("version_prefix")
+        self.version_prefix_by = [(r["meta"].lower(), re.compile(r["match"], re.I), r["prefix"])
+                                  for r in o.get("version_prefix_by", [])]
         self.date_meta = o.get("date_meta")
         self.refresh = int(o.get("refresh_days", 30)) * 86400
         self.kind = o.get("kind", "page")
@@ -218,6 +224,12 @@ class Parser:
         versions = [meta[self.version_meta]] if self.version_meta and meta.get(self.version_meta) else []
         versions += [details[k] for k in self.versions_from
                      if re.fullmatch(r"\d+(\.\d+)+", details.get(k, "") or "")]
+        versions = [v.strip().lstrip("vV") for v in versions]
+        versions = [v for v in versions if re.fullmatch(r"\d+(\.\d+)+", v)]   # drop "June 2026" etc.
+        prefix = next((pre for m, pat, pre in self.version_prefix_by if pat.search(meta.get(m, ""))),
+                      self.version_prefix)
+        if prefix:
+            versions = [f"{prefix} {v}" for v in versions]
         return Document(
             doc_id=f"{self.ctx.source.id}:{re.sub(r'^https?://[^/]+/', '', url)}",
             source=self.ctx.source.id, source_type=self.ctx.source.source_type, kind=self.kind,

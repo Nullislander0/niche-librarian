@@ -16,6 +16,22 @@ agent:
     - "server"                                    # too vague
     - "proxmox, zfs, backups and networking"      # several topics: one call per topic
 
+# Live web search (MCP `web_search`, `librarian web`): site shortcuts an agent can pass as
+# `site`, mostly places this pack can't crawl. blocked_hosts are never fetched by read_url.
+web:
+  sites:
+    reddit_homelab: reddit.com/r/homelab
+    reddit_selfhosted: reddit.com/r/selfhosted
+    reddit_proxmox: reddit.com/r/Proxmox
+    reddit_truenas: reddit.com/r/truenas
+  blocked_hosts: []
+  # `librarian watch add-releases`: one news watch per product (releases, patches, security
+  # advisories, end of support). `match` must appear in a result's title or snippet.
+  releases:
+    - {name: Proxmox VE, match: 'Proxmox'}
+    - {name: TrueNAS, match: 'TrueNAS'}
+    - {name: Docker Engine, match: 'Docker'}
+
 crawler:
   min_interval_seconds: 1.5   # no Crawl-delay requested; Discourse allows far more than this
 

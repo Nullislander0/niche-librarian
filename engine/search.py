@@ -57,10 +57,12 @@ class Searcher:
 
     def search(self, query: str, limit: int = 10, version: str | None = None, version_mode: str = "boost",
                date_from: str | None = None, date_to: str | None = None, source_type: str | None = None,
-               source: str | None = None, explain: bool = False) -> dict:
+               source: str | None = None, explain: bool = False, new_since: str | int | None = None) -> dict:
+        """new_since: only documents first indexed at/after this date (ISO) or unix time."""
         filters = Filters(date_from=parse_date(date_from), date_to=parse_date(date_to, end=True),
                           version=version if version_mode == "filter" else None,
-                          source_type=source_type, source=source)
+                          source_type=source_type, source=source,
+                          first_seen_since=new_since if isinstance(new_since, int) else parse_date(new_since))
         query_versions = [version] if version else self.tagger.detect_query(query)
         k = self.ranker.candidates
 

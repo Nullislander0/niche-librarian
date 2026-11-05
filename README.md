@@ -151,6 +151,93 @@ librarian eval-build / eval                        # build and run the pack's re
 Every raw response is kept in `data/cache/`, so `rebuild` can re-parse everything after you
 change a parser or the chunking, without touching the network.
 
+## Saved searches and alerts
+
+Save a query once, and get only what's **new** since you last checked:
+
+```bash
+librarian watch add pve-upgrades "Proxmox VE upgrade problems" --min-score 0.6
+librarian crawl --watch --notify        # crawl, then report new matches (desktop notice)
+librarian watch run                     # or on its own; writes a report to data/watches/
+librarian watch list | remove NAME
+librarian search "query" --new-since 2026-11-01     # ad hoc: only recently indexed material
+```
+
+Each document records when it first entered the index, so "new" means genuinely new, not
+re-crawled. Watches are personal and live in `data/watches/`, outside the repo. Agents can ask
+the same thing through MCP: `search(..., new_since="YYYY-MM-DD")`.
+
+**Web watches** run a query against the live web instead of your index, catching rare
+mentions on sites you don't crawl:
+
+```bash
+export BRAVE_API_KEY=...                # https://api-dashboard.search.brave.com
+librarian watch add vfio "GPU passthrough regression" --web --freshness pw --site forum.proxmox.com
+librarian watch run --web-only
+```
+
+**Release alerts** use Brave's news index: list your products under `web.releases` in the
+pack's `sources.yaml`, and get one watch per product for new versions, patches, security
+advisories and end-of-support notices:
+
+```yaml
+web:
+  releases:
+    - {name: Proxmox VE, match: 'Proxmox'}      # match: must appear in the title or snippet
+    - {name: TrueNAS, match: 'TrueNAS'}
+```
+
+```bash
+librarian watch add-releases            # creates/updates release-proxmox-ve, release-truenas
+librarian watch run --web-only --notify
+librarian watch add fw "OPNsense firmware" --web --backend brave-news --require 'OPNsense'
+```
+
+Brave's API terms don't allow storing results, so web results are **shown, never saved**.
+Only fingerprints of URLs already seen are kept, so later runs show only new links. Your
+plan's monthly limit is read from Brave's response headers (see the quota line below).
+
+## Beyond the index: web search and single pages
+
+Your index holds what you could crawl. For the rest (very recent posts, sites that block
+crawlers, one-off pages) the agent gets three more MCP tools:
+
+| Tool | What it does | Writes anything? |
+|---|---|---|
+| `web_search` | live Brave search (`news=true` for the news index), results marked `[indexed]` / `[host crawled by source …]` / `[blocked host]`. Only offered when `BRAVE_API_KEY` is set | no |
+| `read_url` | fetches one page politely (robots.txt, throttle, challenge detection) and returns markdown for this answer | no |
+| `index_url` | **proposes** a page for the index | a queue entry only |
+
+Nothing an agent finds goes into your index until you approve it:
+
+```bash
+librarian pages list                    # what agents proposed, and why
+librarian pages approve [URL ...]       # approve (all pending by default) and index
+librarian pages reject [URL ...]        # won't be proposed again
+librarian pages add URL --note "..."    # add one yourself
+librarian pages remove URL
+librarian web "query" --site reddit_gis # search the web yourself; prints the quota
+```
+
+Approved pages become the `web_pages` source, ranked below the vendor docs and forums your
+recipe crawls. Pages under a part of a site one of your sources already crawls are refused,
+because that source's parser keeps richer metadata. What's stored comes from the page's own
+site, never from search results.
+
+Each pack can name site shortcuts and hosts never to fetch in `sources.yaml`:
+
+```yaml
+web:
+  sites: {reddit_homelab: reddit.com/r/homelab, reddit_proxmox: reddit.com/r/Proxmox}
+  blocked_hosts: [example-forum.com]     # e.g. sits behind a bot challenge
+```
+
+**Quota:** agent searches stop when the month's remaining Brave quota falls below a quarter,
+so your watches always have room (`LIBRARIAN_WEB_AGENT_SHARE=0.75` to change it), and at 50
+per server session (`LIBRARIAN_WEB_SESSION_CAP`). Keys can live in
+`~/.config/niche-librarian/env` (`export NAME=value` lines): the engine reads that file
+itself, so MCP clients that don't start from your shell still find them.
+
 ## Connect an agent (MCP)
 
 Each pack is its own MCP server (`librarian serve --pack <pack>`), so register one per topic

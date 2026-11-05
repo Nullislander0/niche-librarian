@@ -190,7 +190,13 @@ class Fetcher:
         path.write_text(json.dumps({"url": url, "fetched_at": time.time(), "body": body}), encoding="utf-8")
 
 
+def to_ascii_url(url: str) -> str:
+    """Percent-encode non-ASCII characters (e.g. accented slugs); existing %XX escapes are kept."""
+    return urllib.parse.quote(url, safe=":/?#[]@!$&'()*+,;=%~")
+
+
 def build_url(url: str, params: dict | None) -> str:
+    url = to_ascii_url(url)
     if not params:
         return url
     query = urllib.parse.urlencode({k: v for k, v in sorted(params.items()) if v is not None})

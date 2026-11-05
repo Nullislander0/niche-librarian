@@ -71,3 +71,9 @@ def test_challenge_detection_ignores_recaptcha_scripts():
     assert not _CHALLENGE.search('<title>Docs Hub</title><script src="https://www.google.com/recaptcha/enterprise.js">')
     assert _CHALLENGE.search("<title>Just a moment...</title>")
     assert _CHALLENGE.search('<script>window._cf_chl_opt={cType: "managed"}</script>')
+
+
+def test_non_ascii_urls_are_percent_encoded():
+    from engine.crawl.fetcher import build_url
+    assert build_url("https://c.example/data-7/géodatabase-ñ-12", None) == "https://c.example/data-7/g%C3%A9odatabase-%C3%B1-12"
+    assert build_url("https://c.example/a%20b?x=1", None) == "https://c.example/a%20b?x=1"

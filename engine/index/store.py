@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS documents (
     content_md TEXT,
     content_hash TEXT,
     extra TEXT,
-    indexed_at INTEGER
+    indexed_at INTEGER,
+    first_seen INTEGER
 );
 CREATE INDEX IF NOT EXISTS documents_parent ON documents(parent_id);
 CREATE INDEX IF NOT EXISTS documents_source ON documents(source);
@@ -74,6 +75,7 @@ class Filters:
     version: str | None = None  # strict filter; soft boosting happens in the ranker
     source_type: str | None = None
     source: str | None = None
+    first_seen_since: int | None = None  # only documents that entered the index after this time
 
     def sql(self, alias: str = "d") -> tuple[str, list]:
         where, args = [], []
@@ -86,6 +88,9 @@ class Filters:
         if self.source_type:
             where.append(f"{alias}.source_type = ?")
             args.append(self.source_type)
+        if self.first_seen_since is not None:
+            where.append(f"{alias}.first_seen >= ?")
+            args.append(self.first_seen_since)
         if self.source:
             where.append(f"{alias}.source = ?")
             args.append(self.source)
@@ -140,6 +145,12 @@ class Store:
         self.vec_ok = _load_sqlite_vec(self.db)
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
+        cols = {r[1] for r in self.db.execute("PRAGMA table_info(documents)")}
+        if "first_seen" not in cols:  # older databases: add it, backfilled from indexed_at
+            self.db.execute("ALTER TABLE documents ADD COLUMN first_seen INTEGER")
+            self.db.execute("UPDATE documents SET first_seen = indexed_at")
+        self.db.execute("CREATE INDEX IF NOT EXISTS documents_first_seen ON documents(first_seen)")
+        self.db.execute("CREATE INDEX IF NOT EXISTS documents_url ON documents(url)")
         self.dim = dim
         if reset_embeddings:  # e.g. after switching embedding model
             self.db.execute("DROP TABLE IF EXISTS chunks_vec")
@@ -180,11 +191,13 @@ class Store:
             tags=json.dumps(doc.tags), extra=json.dumps(doc.extra), version_tags=json.dumps(version_tags),
             is_accepted=int(doc.is_accepted), is_top_voted=int(doc.is_top_voted),
             is_vendor_staff=int(doc.is_vendor_staff), content_hash=content_hash, indexed_at=int(time.time()),
+            first_seen=int(time.time()),
         )
         cols = list(d)
         self.db.execute(
             f"INSERT INTO documents ({','.join(cols)}) VALUES ({','.join('?' * len(cols))}) "
-            f"ON CONFLICT(doc_id) DO UPDATE SET {','.join(f'{c}=excluded.{c}' for c in cols if c != 'doc_id')}",
+            f"ON CONFLICT(doc_id) DO UPDATE SET "
+            f"{','.join(f'{c}=excluded.{c}' for c in cols if c not in ('doc_id', 'first_seen'))}",
             [d[c] for c in cols],
         )
         changed = not old or old[0] != content_hash
@@ -205,6 +218,23 @@ class Store:
             if self.vec_ok:
                 self.db.execute("DELETE FROM chunks_vec WHERE rowid=?", (rid,))
         self.db.execute("DELETE FROM chunks WHERE doc_id=?", (doc_id,))
+
+    def delete_document(self, doc_id: str) -> bool:
+        self._delete_chunks(doc_id)
+        n = self.db.execute("DELETE FROM documents WHERE doc_id=?", (doc_id,)).rowcount
+        self.db.commit()
+        return bool(n)
+
+    def find_urls(self, urls: list[str]) -> dict[str, str]:
+        """Which of these URLs are already indexed: {url: doc_id}. Ignores a trailing slash."""
+        out = {}
+        for u in urls:
+            base = u.split("#")[0].rstrip("/")
+            r = self.db.execute("SELECT doc_id FROM documents WHERE url IN (?, ?) ORDER BY parent_id IS NOT NULL "
+                                "LIMIT 1", (base, base + "/")).fetchone()
+            if r:
+                out[u] = r[0]
+        return out
 
     def refresh_top_voted(self, source: str) -> None:
         """A reply is top voted if it has the thread's highest positive score."""

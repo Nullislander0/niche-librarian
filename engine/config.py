@@ -15,6 +15,25 @@ from pathlib import Path
 
 import yaml
 
+def _load_env_file() -> None:
+    """API keys from ~/.config/niche-librarian/env (KEY=value or export KEY=value lines), for
+    processes that don't start from your shell, such as the MCP server launched by a client.
+    Variables already set in the environment win."""
+    path = Path(os.environ.get("LIBRARIAN_ENV_FILE", Path.home() / ".config" / "niche-librarian" / "env"))
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for line in lines:
+        line = line.strip().removeprefix("export ").strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip("'\""))
+
+
+_load_env_file()
+
 ROOT = Path(__file__).resolve().parent.parent
 PACKS_DIR = Path(os.environ.get("LIBRARIAN_PACKS", ROOT / "packs"))
 DATA_DIR = Path(os.environ.get("LIBRARIAN_DATA", ROOT / "data"))
@@ -64,6 +83,8 @@ class Pack:
     crawler: dict
     synonyms: list = field(default_factory=list)
     agent: dict = field(default_factory=dict)  # hints for MCP tool descriptions (example queries)
+    web: dict = field(default_factory=dict)  # web_search site shortcuts and hosts never to fetch
+    signals: dict = field(default_factory=dict)  # terms and categories for `librarian signals`
 
     @property
     def db_path(self) -> Path:
@@ -113,6 +134,17 @@ def load_pack(pack_id: str) -> Pack:
         )
         for s in meta.get("sources", [])
     ]
+    if not any(s.id == "web_pages" for s in sources):  # pages you approved one by one (engine/webpages.py)
+        sources.append(SourceConfig(
+            id="web_pages", parser="web_pages", source_type="web", trust=0.4, options={"pack": pack_id},
+            access={"method": "single pages you approved (librarian pages)", "robots": "checked per page",
+                    "auth": "none", "verdict": "ok"}))
+    web = meta.get("web") or {}
+    if web.get("storage_rights") and not any(s.id == "web_results" for s in sources):
+        sources.append(SourceConfig(  # stored search results (engine/webresults.py); never crawled
+            id="web_results", parser="web_results", source_type="web", trust=0.3,
+            access={"method": "web search API results (plan with storage rights)", "robots": "n/a",
+                    "auth": "API key", "verdict": "ok"}))
     return Pack(
         id=pack_id,
         name=meta.get("name", pack_id),
@@ -123,5 +155,7 @@ def load_pack(pack_id: str) -> Pack:
         versions=_read_yaml(path / "versions.yaml"),
         synonyms=_read_yaml(path / "synonyms.yaml").get("groups", []),
         agent=meta.get("agent") or {},
+        web=web,
+        signals=meta.get("signals") or {},
         crawler={**CRAWLER, **(meta.get("crawler") or {})},
     )

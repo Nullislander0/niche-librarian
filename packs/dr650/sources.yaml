@@ -13,6 +13,18 @@ agent:
     - "dr650"                                 # too vague
     - "suspension, gearing, seat and tank"    # several topics: one call per topic
 
+# Live web search (MCP `web_search`, `librarian web`): site shortcuts an agent can pass as
+# `site`. blocked_hosts are never fetched by read_url (search snippets are still shown).
+web:
+  sites:
+    drriders: drriders.com
+    reddit_dr650: reddit.com/r/DR650
+    reddit_dualsport: reddit.com/r/Dualsport
+  blocked_hosts: [drriders.com]   # Cloudflare bot challenge (2026-11-04)
+  # `librarian watch add-releases`: news watches (recalls, new model years, service bulletins).
+  releases:
+    - {name: Suzuki DR650, query: 'Suzuki DR650 recall OR "model year" OR "service bulletin"', match: 'DR ?650'}
+
 crawler:
   min_interval_seconds: 2.0   # no Crawl-delay for our agent; be gentle anyway
 
