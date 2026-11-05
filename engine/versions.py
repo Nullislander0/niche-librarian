@@ -1,4 +1,10 @@
-"""Recognise product versions in text, driven entirely by the pack's versions.yaml."""
+"""Recognise product versions in text, driven entirely by the pack's versions.yaml.
+
+Single product: `pattern` (group 1 = version) plus optional `context`, `aliases`, ...
+Several products: a `products` list, each entry a single-product config plus a `prefix`;
+tags then read "<prefix> <version>" (e.g. "pve 8.2", "truenas 24.10"), so versions of
+different products never collide and "pve 8" matches every 8.x.
+"""
 from __future__ import annotations
 
 import re
@@ -7,6 +13,12 @@ import re
 class VersionTagger:
     def __init__(self, cfg: dict):
         cfg = cfg or {}
+        # (prefix, tagger, only_sources): a product rule with `only_sources` applies to those
+        # sources alone, e.g. a bare "25.10" means TrueNAS inside the TrueNAS forums only.
+        self.products = [(str(p["prefix"]),
+                          VersionTagger({k: v for k, v in p.items() if k not in ("prefix", "only_sources")}),
+                          set(p.get("only_sources") or []))
+                         for p in cfg.get("products", [])]
         self.pattern = re.compile(cfg["pattern"]) if cfg.get("pattern") else None
         self.context = re.compile(cfg["context"], re.I) if cfg.get("context") else None
         self.window = int(cfg.get("window", 60))
@@ -19,7 +31,7 @@ class VersionTagger:
         self.exclude_window = int(cfg.get("exclude_window", 25))
 
     def _canon(self, v: str) -> str:
-        v = self.aliases.get(v, v)
+        v = self.aliases.get(v, self.aliases.get(v.lower(), v))
         if self.strip_patch_zero and v.count(".") == 2 and v.endswith(".0"):
             v = v[:-2]  # 11.5.0 -> 11.5
         return v
@@ -40,17 +52,22 @@ class VersionTagger:
                 found.append(v)
         return found
 
-    def tag(self, text: str) -> list[str]:
+    def tag(self, text: str, source: str | None = None) -> list[str]:
         """Versions mentioned in a document, requiring a nearby product term."""
-        return sorted(self._find(text, need_context=True), key=version_key)
+        found = self._find(text, need_context=True) + \
+            [f"{pre} {v}" for pre, t, only in self.products if not only or source in only for v in t.tag(text)]
+        return sorted(set(found), key=version_key)
 
     def detect_query(self, text: str) -> list[str]:
         """Versions mentioned in a search query (context optional: queries are short)."""
-        return self._find(text, need_context=self.query_context_required)
+        return self._find(text, need_context=self.query_context_required) + \
+            [f"{pre} {v}" for pre, t, only in self.products if not only for v in t.detect_query(text)]
 
 
 def version_key(v: str) -> tuple:
-    return tuple(int(p) if p.isdigit() else 0 for p in v.split("."))
+    """Sort key: product prefix first (if any), then numeric parts. "pve 8.10" > "pve 8.2"."""
+    prefix, _, num = v.rpartition(" ")
+    return (prefix, *(int(p) if p.isdigit() else 0 for p in re.split(r"[.\-]", num)))
 
 
 def version_matches(tag: str, wanted: str) -> bool:

@@ -60,6 +60,7 @@ def main(argv: list[str] | None = None) -> None:
     ev.add_argument("--alpha", type=float, default=0.7)
 
     sub.add_parser("stats", parents=[common], help="index statistics")
+    sub.add_parser("sources", parents=[common], help="the pack's sources and how each is accessed")
     o = sub.add_parser("outline", parents=[common], help="what the index covers")
     o.add_argument("--source")
     sub.add_parser("serve", parents=[common], help="run the MCP server on stdio")
@@ -97,6 +98,12 @@ def main(argv: list[str] | None = None) -> None:
         elif a.cmd == "retag":
             from engine.indexer import retag
             print(json.dumps(retag(pack), indent=2))
+        elif a.cmd == "sources":
+            print(f"| source | type | parser | access | robots | auth | verdict | checked |\n|---|---|---|---|---|---|---|---|")
+            for src in pack.sources:
+                ac = src.access
+                print(f"| {src.id} | {src.source_type} | {src.parser} | {ac.get('method', '?')} | {ac.get('robots', '?')} "
+                      f"| {ac.get('auth', 'none')} | {ac.get('verdict', '?')} | {ac.get('checked', '?')} |")
         elif a.cmd == "outline":
             from engine.search import Searcher
             print(Searcher(pack).outline(a.source))

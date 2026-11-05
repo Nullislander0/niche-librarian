@@ -22,7 +22,11 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-_CHALLENGE = re.compile(r"captcha|cf-chl-|challenge-platform|are you a robot|unusual traffic", re.I)
+# Signs of a bot-challenge / block page (not a normal page that merely loads a CAPTCHA script for
+# a form): the challenge's own title, or Cloudflare's challenge parameters.
+_CHALLENGE = re.compile(
+    r"<title>\s*(just a moment|attention required|access denied|security check|are you a robot|ddos-guard)"
+    r"|cf-chl-|cf_chl_opt|window\._cf_chl", re.I)
 
 
 class FetchError(Exception):

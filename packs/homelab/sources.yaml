@@ -1,0 +1,166 @@
+# Home server pack: Proxmox VE, TrueNAS and Docker self-hosting on your own hardware.
+# Access for every source below was checked on 2026-11-05: robots.txt allows our agent,
+# no bot challenge, and no AI-crawler opt-out (see each `access:` block).
+name: Home server (Proxmox, TrueNAS, Docker)
+description: >-
+  Running your own home server: Proxmox VE virtualization, TrueNAS storage and ZFS, Docker
+  and Compose self-hosting, plus the Linux underneath. Vendor docs and wikis first, then
+  community forums.
+
+agent:
+  good_queries:
+    - "Proxmox VE 8 PCI passthrough GPU to VM not working IOMMU"
+    - "TrueNAS SCALE 24.10 apps migration from Kubernetes to Docker"
+    - "docker compose container cannot reach host network bridge"
+  bad_queries:
+    - "server"                                    # too vague
+    - "proxmox, zfs, backups and networking"      # several topics: one call per topic
+
+crawler:
+  min_interval_seconds: 1.5   # no Crawl-delay requested; Discourse allows far more than this
+
+sources:
+  # ---- authority: vendor docs and wikis -------------------------------------------------
+  - id: proxmox_docs
+    parser: sitemap_html
+    source_type: docs
+    trust: 1.0
+    access: {checked: 2026-11-05, robots: "none (404, all allowed)", method: "HTML from the docs index",
+             auth: none, verdict: ok}
+    options:
+      index_pages: [https://pve.proxmox.com/pve-docs/]
+      index_link_pattern: '/pve-docs/chapter-[\w-]+\.html$'   # chapter pages (the admin guide repeats them)
+      content: {tag: div, id: content}
+      title_strip: '\s*[|-]\s*Proxmox.*$'
+      refresh_days: 30
+      kind: page
+
+  - id: proxmox_wiki
+    parser: mediawiki
+    source_type: docs
+    trust: 0.95
+    access: {checked: 2026-11-05, robots: "none (404, all allowed)", method: MediaWiki API, auth: none, verdict: ok}
+    options:
+      api: https://pve.proxmox.com/mediawiki/api.php
+      page_url: https://pve.proxmox.com/wiki/{title}
+
+  - id: truenas_docs
+    parser: sitemap_html
+    source_type: docs
+    trust: 1.0
+    access: {checked: 2026-11-05, robots: allowed, method: sitemap, auth: none, verdict: ok}
+    options:
+      sitemaps: [https://www.truenas.com/docs/sitemap.xml]
+      include: ['^https://www\.truenas\.com/docs/']
+      exclude: ['/printpreview/', '/_archive/', '/solutionsprint/', '/files/']
+      content: {tag: article, class: gdoc-markdown}
+      title_strip: '\s*\|\s*TrueNAS Documentation Hub\s*$'
+      refresh_days: 30
+      kind: page
+
+  - id: docker_docs
+    parser: sitemap_html
+    source_type: docs
+    trust: 1.0
+    access: {checked: 2026-11-05, robots: allowed, method: sitemap, auth: none, verdict: ok}
+    options:
+      sitemaps: [https://docs.docker.com/sitemap.xml]
+      # Self-hosting relevant sections only (not Desktop, Hub, billing, Scout, ...).
+      include: ['^https://docs\.docker\.com/(engine|compose|reference/compose-file|reference/cli/docker/(container|compose|image|network|volume|system)|network|storage|config|build/building|security)/']
+      content: {tag: article, class: prose}
+      title_strip: '\s*\|\s*Docker Docs\s*$'
+      strip_patterns: ['<div class="pb-0 text-lg lg:pb-2">Table of contents</div>']
+      refresh_days: 30
+      kind: page
+
+  - id: arch_wiki
+    parser: mediawiki
+    source_type: wiki
+    trust: 0.9
+    access: {checked: 2026-11-05, robots: allowed, method: MediaWiki API, auth: none, verdict: ok,
+             notes: "content CC BY-SA; English pages only"}
+    options:
+      api: https://wiki.archlinux.org/api.php
+      page_url: https://wiki.archlinux.org/title/{title}
+      exclude_titles:   # translated copies are titled "Page (Language)"
+        - '\((العربية|Български|Bosanski|Català|Čeština|Dansk|Deutsch|Ελληνικά|Español|Esperanto|Suomi|Français|עברית|Hrvatski|Magyar|Indonesia|Italiano|日本語|한국어|Lietuvių|Norsk Bokmål|Nederlands|Polski|Português|Română|Русский|Slovenčina|Српски|Svenska|ไทย|Türkçe|Українська|Tiếng Việt|简体中文|正體中文|Bahasa Indonesia|فارسی)\)$'
+
+  # ---- community: Discourse forums (official JSON API) ------------------------------------
+  - id: truenas_forums
+    parser: discourse
+    source_type: forum
+    trust: 0.8
+    access: {checked: 2026-11-05, robots: allowed, method: Discourse JSON API, auth: none, verdict: ok}
+    options:
+      base_url: https://forums.truenas.com
+      since: "2022-01-01"   # the forum itself started in 2024; older posts live on the archived old forum
+      vendor_groups: 'TrueNAS_Staff|iXsystems'
+      categories:
+        - {id: 4, name: TrueNAS General}          # ~12,100 topics
+        - {id: 6, name: Apps and Virtualization}  # ~3,600
+        - {id: 9, name: Resources}
+        - {id: 13, name: Release Notes}
+        - {id: 5, name: Announcements}
+
+  - id: docker_forums
+    parser: discourse
+    source_type: forum
+    trust: 0.7
+    access: {checked: 2026-11-05, robots: allowed, method: Discourse JSON API, auth: none, verdict: ok}
+    options:
+      base_url: https://forums.docker.com
+      since: "2022-01-01"
+      vendor_groups: 'Docker|staff'
+      categories:
+        - {id: 23, name: General}                 # ~15,200 topics (all years)
+        - {id: 22, name: Docker Engine}           # incl. Compose, Swarm
+        - {id: 105, name: Image Builds}
+
+  - id: level1techs
+    parser: discourse
+    source_type: forum
+    trust: 0.7
+    access: {checked: 2026-11-05, robots: allowed, method: Discourse JSON API, auth: none, verdict: ok}
+    options:
+      base_url: https://forum.level1techs.com
+      since: "2022-01-01"
+      categories:
+        - {id: 27, name: Linux}
+        - {id: 132, name: Virtualization}
+        - {id: 52, name: Open Source & Web-Based}
+        - {id: 130, name: BSD}
+        - {id: 153, name: Workstations & Servers}
+        - {id: 59, name: Storage}
+        - {id: 78, name: Networking}
+        - {id: 128, name: Wikis & How-to Guides}
+
+  - id: linuxserver
+    parser: discourse
+    source_type: forum
+    trust: 0.7
+    access: {checked: 2026-11-05, robots: allowed, method: Discourse JSON API, auth: none, verdict: ok}
+    options:
+      base_url: https://discourse.linuxserver.io
+      since: "2019-01-01"
+      vendor_groups: 'linuxserver|team'
+      categories:
+        - {id: 8, name: Container Support}
+        - {id: 12, name: Docker}
+
+  # ---- planned (need a new parser or a key) ----------------------------------------------
+  - id: proxmox_forum
+    parser: xenforo2
+    source_type: forum
+    trust: 0.8
+    enabled: false
+    access: {checked: 2026-11-05, robots: allowed, method: XenForo 2 HTML, auth: none, verdict: ok,
+             notes: "needs the xenforo2 parser (not written yet)"}
+  - id: servethehome
+    parser: xenforo2
+    source_type: forum
+    trust: 0.7
+    enabled: false
+    access: {checked: 2026-11-05, robots: allowed, method: XenForo 2 HTML, auth: none, verdict: ok,
+             notes: "needs the xenforo2 parser (not written yet)"}
+  # Excluded by choice: Home Assistant community (~235k topics; home automation is its own pack).
+  # Later: GitHub issues (needs GITHUB_TOKEN), Reddit r/homelab, r/selfhosted (needs an app key; read Reddit's terms).

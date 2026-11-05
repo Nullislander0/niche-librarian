@@ -64,3 +64,10 @@ def test_fetch_token_budget_keeps_priority_order():
     tight = s.fetch("gis_se:q:1001#c0", scope="thread", max_tokens=1)
     assert "showing 3" in full and "showing 1" in tight
     assert "2 more replies not shown" in tight and "gis_se:a:2001#c0" in tight
+
+
+def test_challenge_detection_ignores_recaptcha_scripts():
+    from engine.crawl.fetcher import _CHALLENGE
+    assert not _CHALLENGE.search('<title>Docs Hub</title><script src="https://www.google.com/recaptcha/enterprise.js">')
+    assert _CHALLENGE.search("<title>Just a moment...</title>")
+    assert _CHALLENGE.search('<script>window._cf_chl_opt={cType: "managed"}</script>')

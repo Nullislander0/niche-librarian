@@ -99,6 +99,13 @@ class _Converter(HTMLParser):
         elif tag == "tr":
             self._newline(1)
             self._emit("|")
+        elif tag == "dl":
+            self._newline(2)
+        elif tag == "dt":
+            self._newline(1)
+            self._emit("- **")
+        elif tag == "dd":
+            self._emit(": ")
         elif tag in ("td", "th"):
             self._emit(" ")
         elif tag == "br":
@@ -157,6 +164,10 @@ class _Converter(HTMLParser):
             self._newline(1 if self.lists and tag in ("p", "div") else 2)
         elif tag in ("td", "th"):
             self._emit(" |")
+        elif tag == "dt":
+            self._emit("**")
+        elif tag == "dl":
+            self._newline(2)
         elif tag in ("strong", "b"):
             self._emit("**")
         elif tag in ("em", "i"):

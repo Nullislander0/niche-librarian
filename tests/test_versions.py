@@ -40,3 +40,22 @@ def test_trailing_zero_patch_is_same_release():
 def test_database_versions_are_not_arcgis_versions():
     assert t.tag("ArcGIS Server on PostgreSQL 12.2 and Oracle 12.2, portal 11.3") == ["11.3"]
     assert t.tag("upgrade enterprise geodatabase from postgres version 11.7") == []
+
+
+def test_multi_product_versions():
+    from engine.versions import VersionTagger, version_key, version_matches
+    t = VersionTagger({"products": [
+        {"prefix": "pve", "pattern": r"(?i)(?:proxmox(?:\s?ve)?|\bpve)\s*v?(\d\.\d(?:\.\d+)?)"},
+        {"prefix": "truenas", "pattern": r"(?i)truenas(?:\s(?:scale|core))?\s*(\d{2}\.\d{2}(?:\.\d+)?)"},
+    ]})
+    assert t.tag("Upgraded Proxmox VE 8.2 and TrueNAS SCALE 24.10, then pve 9.0") == ["pve 8.2", "pve 9.0", "truenas 24.10"]
+    assert t.tag("my 8.2 TB disk") == []
+    assert version_matches("pve 8.2", "pve 8") and sorted(["pve 8.10", "pve 8.2"], key=version_key) == ["pve 8.2", "pve 8.10"]
+
+
+def test_source_scoped_product_rule():
+    from engine.versions import VersionTagger
+    t = VersionTagger({"products": [{"prefix": "truenas", "only_sources": ["truenas_forums"],
+                                     "pattern": r"(?<![\w.])(2[2-9]\.(?:04|10)(?:\.\d+)?)(?![\d.])"}]})
+    assert t.tag("On 25.10.7 the bug is fixed", "truenas_forums") == ["truenas 25.10.7"]
+    assert t.tag("On 25.10.7 the bug is fixed", "docker_forums") == []

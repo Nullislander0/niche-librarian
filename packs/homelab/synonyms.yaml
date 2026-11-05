@@ -1,0 +1,12 @@
+groups:
+  - "pve -> proxmox ve"
+  - "pbs -> proxmox backup server"
+  - "docker-compose, compose file -> docker compose"
+  - "zpool -> zfs pool"
+  - "iommu, vfio, pass through -> pci passthrough"
+  - "samba -> smb"
+  - "ct, lxc -> lxc container"
+  - "truenas scale -> truenas"
+  - "dragonfish -> truenas 24.04"
+  - "electric eel -> truenas 24.10"
+  - "fangtooth -> truenas 25.04"

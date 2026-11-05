@@ -6,6 +6,9 @@ patterns, and re-fetched only after `refresh_days`.
 
 Options (sources.yaml):
   sitemaps: [https://docs.example.com/en/product/sitemap.xml]   # sitemap or sitemap index
+  urls: [https://docs.example.com/faq.html]                     # extra pages, listed explicitly
+  index_pages: [https://docs.example.com/]                      # pages whose links are followed
+  index_link_pattern: 'chapter-[\w-]+\.html$'                    # ...one level deep, if they match
   include: ['^https://docs\\.example\\.com/en/product/']         # regexes; all if empty
   exclude: ['/release-notes/archive/']
   content: {tag: article, id: main}      # element holding the page body (or class:)
@@ -20,7 +23,10 @@ Options (sources.yaml):
   versions_from: [version_fixed]         # extracted/meta fields that are product versions
   title_format: '{title}: {h1}'          # fields: title (cleaned <title>/meta title), h1, meta_<name>
   sort: {pattern: '-(\d+)$', descending: true}   # crawl order, e.g. newest ids first
+  strip_patterns: ['<div class="toc".*?</div>']   # extra regexes removed from the content HTML
   kind: page
+
+<nav> elements (breadcrumbs, in-page tables of contents) are always removed from content.
 
 Mark the source authoritative by listing its source_type under
 `authoritative_source_types` in ranking.yaml.
@@ -29,6 +35,7 @@ from __future__ import annotations
 
 import html
 import re
+import urllib.parse
 import time
 from datetime import datetime, timezone
 from typing import Iterator
@@ -101,7 +108,10 @@ class Parser:
     def __init__(self, ctx: CrawlContext):
         self.ctx = ctx
         o = ctx.options
-        self.sitemaps = o["sitemaps"]
+        self.sitemaps = o.get("sitemaps", [])
+        self.extra_urls = o.get("urls", [])
+        self.index_pages = o.get("index_pages", [])
+        self.index_link = re.compile(o["index_link_pattern"]) if o.get("index_link_pattern") else None
         self.include = [re.compile(p) for p in o.get("include", [])]
         self.exclude = [re.compile(p) for p in o.get("exclude", [])]
         self.content = o.get("content", {"tag": "main"})
@@ -116,6 +126,7 @@ class Parser:
         self.versions_from = [v.lower() for v in o.get("versions_from", [])]
         self.title_format = o.get("title_format")
         self.sort = o.get("sort")
+        self.strip = [re.compile(p, re.S | re.I) for p in [r"<nav\b.*?</nav>", *o.get("strip_patterns", [])]]
         self.skipped = 0
 
     def crawl(self) -> Iterator[Document]:
@@ -154,7 +165,16 @@ class Parser:
                 elif (not self.include or any(p.search(loc) for p in self.include)) \
                         and not any(p.search(loc) for p in self.exclude):
                     urls.append(loc)
-        self.ctx.log.info("%d pages listed in sitemaps", len(urls))
+        urls += self.extra_urls
+        for idx in self.index_pages:
+            self.ctx.check_budget()
+            body = self.ctx.fetcher.get_text(idx, ttl=86400)
+            for href in re.findall(r'href="([^"#]+)"', body):
+                full = urllib.parse.urljoin(idx, html.unescape(href))
+                if (not self.index_link or self.index_link.search(full)) and \
+                        not any(p.search(full) for p in self.exclude):
+                    urls.append(full)
+        self.ctx.log.info("%d pages listed", len(urls))
         urls = sorted(set(urls))
         if self.sort:
             pat = re.compile(self.sort["pattern"])
@@ -174,6 +194,8 @@ class Parser:
         if body is None:
             self.ctx.log.warning("no content element in %s", url)
             return None
+        for pat in self.strip:
+            body = pat.sub("", body)
         md = html_to_markdown(body, base_url=url)
         m = re.search(r"<title>(.*?)</title>", page, re.S | re.I)
         title = meta.get("title") or (html.unescape(m.group(1)).strip() if m else url)

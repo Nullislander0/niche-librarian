@@ -1,0 +1,20 @@
+# Several products: tags read "<prefix> <version>", e.g. "pve 8.2", "truenas 24.10", "docker 27.3".
+products:
+  - prefix: pve
+    pattern: '(?i)(?:proxmox(?:\s?ve)?|\bpve)[\s-]*v?(\d\.\d(?:\.\d+)?)(?![\d.])'
+  - prefix: pbs
+    pattern: '(?i)(?:proxmox backup server|\bpbs)[\s-]*v?(\d\.\d(?:\.\d+)?)(?![\d.])'
+  - prefix: truenas
+    pattern: '(?i)truenas(?:\s(?:scale|core|community edition|enterprise))?[\s-]*v?(\d{2}\.\d{2}(?:\.\d+)?|1[23]\.\d)(?![\d.])'
+  - prefix: truenas
+    # Release codenames, mapped to versions.
+    pattern: '(?i)\b(angelfish|bluefin|cobia|dragonfish|electric eel|fangtooth|goldeye)\b'
+    aliases: {angelfish: "22.02", bluefin: "22.12", cobia: "23.10", dragonfish: "24.04",
+              electric eel: "24.10", fangtooth: "25.04", goldeye: "25.10"}
+  - prefix: truenas
+    # Inside TrueNAS's own forums and docs, a bare "25.10.7" or "24.04" is a TrueNAS release.
+    only_sources: [truenas_forums, truenas_docs]
+    pattern: '(?<![\w.])(2[2-9]\.(?:02|04|10|12)(?:\.\d+)?)(?![\d.])'
+  - prefix: docker
+    pattern: '(?i)docker(?:\s(?:engine|ce|ee))?[\s-]*(?:version\s*)?v?(\d{2}\.\d{1,2}(?:\.\d+)?)(?![\d.])'
+query_context_required: false

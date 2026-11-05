@@ -1,0 +1,48 @@
+rrf_k: 20
+candidates: 60
+max_chunks_per_doc: 1
+max_per_thread: 2
+
+reranker:
+  model: Xenova/ms-marco-MiniLM-L-6-v2
+  candidates: 20
+  max_chars: 1000
+  alpha: 0.7
+
+weights:
+  retrieval: 1.5
+  version_exact: 0.3
+  version_family: 0.15
+  version_mismatch: -0.15
+  recency: 0.2            # homelab software moves fast; applies to version-sensitive queries
+  source_trust: 0.15
+  authoritative: 0.3      # vendor docs (Proxmox, TrueNAS, Docker)
+  accepted_answer: 0.25
+  top_voted: 0.1
+  vendor_staff: 0.2       # e.g. TrueNAS_Staff
+  recognized_expert: 0.1  # Discourse trust level 4 or site staff
+  first_hand: 0.2
+  author_reputation: 0.1  # Discourse trust level (0-4)
+  votes: 0.1
+
+authoritative_source_types: [docs]
+
+recency:
+  half_life_days: 540
+  version_sensitive_terms: [upgrade, upgrading, migrate, migration, deprecated, removed, "new version",
+                            latest, kernel, driver, "release", apps, kubernetes]
+
+author:
+  default: {reputation_ceiling: 4, age_ceiling_years: 8}   # Discourse trust levels top out at 4
+
+votes:
+  ceiling: 30
+
+first_hand_saturation: 3
+first_hand_patterns:
+  - '\b(my|our)\s+(server|setup|homelab|nas|pool|cluster|node|box|build)\b'
+  - '\bI\s+(set up|configured|migrated|upgraded|installed|tested|replaced|switched|ran|run)\b'
+  - '\b(this|that)\s+(fixed|solved|worked)\b|\bworked for (me|us)\b'
+  - '^\s*(```|~~~)'                                      # config, logs, command output
+  - '\b(dmesg|journalctl|syslog|zpool status|docker logs)\b'
+  - '\b(after|since)\s+(upgrading|the upgrade|a reboot|rebooting)\b'

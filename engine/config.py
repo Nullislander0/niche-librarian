@@ -47,6 +47,9 @@ class SourceConfig:
     trust: float = 0.5
     enabled: bool = True
     options: dict = field(default_factory=dict)
+    # How access was verified: {checked, robots, method, auth, verdict: ok|blocked|needs-key, notes}.
+    # A source with verdict "blocked" is never crawled.
+    access: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -106,6 +109,7 @@ def load_pack(pack_id: str) -> Pack:
             trust=float(s.get("trust", 0.5)),
             enabled=bool(s.get("enabled", True)),
             options=s.get("options", {}) or {},
+            access=s.get("access", {}) or {},
         )
         for s in meta.get("sources", [])
     ]

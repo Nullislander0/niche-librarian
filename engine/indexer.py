@@ -33,7 +33,7 @@ def make_fetcher(pack: Pack, offline: bool = False) -> Fetcher:
 
 def index_document(store: Store, tagger: VersionTagger, doc: Document) -> bool:
     text = "\n".join([doc.title, doc.content_md, " ".join(doc.tags)])
-    versions = set(tagger.tag(text)) | set(doc.extra.get("versions") or [])  # parser-declared, e.g. docs
+    versions = set(tagger.tag(text, doc.source)) | set(doc.extra.get("versions") or [])  # parser-declared, e.g. docs
     if doc.parent_id:  # replies inherit the thread's version context
         versions |= set(store.get_version_tags(doc.parent_id))
     return store.upsert(doc, sorted(versions, key=version_key), chunk_markdown(doc.content_md))
@@ -58,6 +58,11 @@ def crawl(pack: Pack, source_ids: list[str] | None = None, max_requests: int | N
             if source_ids and src.id not in source_ids:
                 continue
             if not src.enabled and not source_ids:
+                continue
+            verdict = str(src.access.get("verdict", "")).lower()
+            if verdict in ("blocked", "needs-key") and not offline:
+                report[src.id] = {"status": f"skipped: access verdict '{verdict}' ({src.access.get('notes', '')})"}
+                log.warning("%s skipped: %s", src.id, report[src.id]["status"])
                 continue
             parser_cls = load_parser(src.parser, pack.path)
             state = store.state_for(src.id)
@@ -107,11 +112,11 @@ def retag(pack: Pack) -> dict:
     changed = 0
     try:
         # Roots first so replies can inherit their thread's tags.
-        rows = db.execute("SELECT doc_id, parent_id, title, content_md, tags, version_tags FROM documents "
+        rows = db.execute("SELECT doc_id, source, parent_id, title, content_md, tags, version_tags FROM documents "
                           "ORDER BY parent_id IS NOT NULL").fetchall()
         for r in rows:
             text = "\n".join([r["title"] or "", r["content_md"] or "", " ".join(json.loads(r["tags"] or "[]"))])
-            versions = set(tagger.tag(text))
+            versions = set(tagger.tag(text, r["source"]))
             if r["parent_id"]:
                 versions |= set(store.get_version_tags(r["parent_id"]))
             new = json.dumps(sorted(versions, key=version_key))
