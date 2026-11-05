@@ -5,6 +5,7 @@ import argparse
 import contextlib
 import json
 import logging
+import os
 import sys
 
 from engine.config import load_pack
@@ -12,7 +13,8 @@ from engine.config import load_pack
 
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="librarian", description="Local niche search index for AI agents.")
-    p.add_argument("--pack", default="esri_enterprise", help="topic pack under packs/ (default: %(default)s)")
+    p.add_argument("--pack", default=os.environ.get("LIBRARIAN_PACK", "esri_enterprise"),
+                   help="topic pack under packs/ (default: $LIBRARIAN_PACK or %(default)s)")
     p.add_argument("-v", "--verbose", action="store_true")
     # Also accept --pack after the subcommand (`librarian serve --pack x`).
     common = argparse.ArgumentParser(add_help=False)

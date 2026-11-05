@@ -1,17 +1,83 @@
 # niche-librarian
 
-A local, targeted search index for AI agents. It crawls a hand-picked list of sources for
-one niche topic, stores them with useful metadata, and gives an agent fast hybrid search
-over MCP.
+Give your AI assistant a librarian for one niche: a **local search index of the docs and
+forums that practitioners actually use**, served to the agent over MCP.
 
-Two topic packs are included:
-- **`esri_enterprise`:** Esri ArcGIS Enterprise architecture, administration and practitioner
-  experience, from GIS Stack Exchange, Esri Community, and Esri's docs, knowledge base and bug
-  database.
-- **`dr650`:** Suzuki DR650 builds, mods and long-term ownership, from ADVrider.
+General web search and a model's own memory are weakest exactly where specialist work
+lives: version-specific details, error messages, "this broke after the upgrade", and the
+difference between an official fix and a forum guess. niche-librarian crawls a hand-picked
+set of sources for one topic, through official APIs wherever they exist. It records who
+said what, on which version, with what standing (vendor docs, staff reply, accepted answer,
+or just a post), then ranks results with that in mind. Every result is citable back to the
+original post or page.
 
-This repo ships the recipe (code, configs and source lists), never crawled content. You run
-the crawl yourself, and the data stays in `data/`, which is gitignored.
+This repo ships the **recipe** (code, configs and source lists), never crawled content. You
+run the crawl yourself, and the data stays on your machine in `data/`, which git ignores.
+
+## Topic packs included
+
+| Pack | What it covers | Sources | Good first pack? |
+|---|---|---|---|
+| **`homelab`** | Running your own home server: Proxmox VE, TrueNAS and ZFS, Docker and Compose, and the Linux underneath | Proxmox docs and wiki, TrueNAS docs and forums, Docker docs and forums, Arch Wiki, Level1Techs, LinuxServer.io | **Yes:** broad audience, all public APIs, no keys needed |
+| `esri_enterprise` | Esri ArcGIS Enterprise administration: installs, upgrades, federation, Data Store, Web Adaptor | GIS Stack Exchange, Esri Community, Esri docs, knowledge base and bug database | For GIS administrators |
+| `dr650` | Suzuki DR650 builds, mods, maintenance and long-term ownership | ADVrider (the DR650 thread, `dr650`-tagged and title-matched threads) | An example of a forum-only pack |
+
+Each pack is independent: its own database, its own MCP server, its own ranking. Writing a
+pack for your own niche is the point. See [Writing your own pack](#writing-your-own-pack).
+
+## Quick start (home server pack)
+
+You need Python 3.11+ and [Ollama](https://ollama.com), which provides the local embeddings
+for semantic search. Without Ollama, search still works in keyword-only mode.
+
+**1. Install** (Linux / macOS):
+
+```bash
+git clone https://github.com/Nullislander0/niche-librarian.git
+cd niche-librarian
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev,rerank]"
+ollama pull nomic-embed-text
+.venv/bin/pytest            # optional: should pass
+```
+
+On Windows (PowerShell), use `py -3 -m venv .venv` and `.venv\Scripts\` in place of
+`.venv/bin/` throughout.
+
+**2. Pick the pack and check its sources:**
+
+```bash
+export LIBRARIAN_PACK=homelab     # or pass --pack homelab to each command
+.venv/bin/librarian sources       # how each source is accessed, and when that was checked
+```
+
+**3. Crawl.** Try a small sample first, then run the full crawl:
+
+```bash
+.venv/bin/librarian crawl --max-requests 10   # a few requests per source, to see it work
+.venv/bin/librarian crawl                     # full first crawl (see "What to expect" below)
+```
+
+**4. Search from the terminal**, to see what you got:
+
+```bash
+.venv/bin/librarian outline
+.venv/bin/librarian search "Proxmox VE 8 GPU passthrough to VM not working" --explain
+```
+
+**5. Connect your AI assistant**, as covered under [Connect an agent (MCP)](#connect-an-agent-mcp)
+below. Then ask your assistant real questions. It searches the index, reads the best
+threads and cites them.
+
+### What to expect from a first crawl
+- **Time:** the docs and wikis take an hour or two. The forums take most of a night,
+  because the crawler paces itself (`min_interval_seconds` in the pack's `sources.yaml`).
+  Leave it running. It keeps the machine awake while it works, and it resumes where it
+  stopped if interrupted.
+- **Disk:** packs end up in the hundreds of megabytes up to about 1 GB each, plus a raw
+  response cache in `data/cache/`.
+- **Later runs** only fetch what changed: new topics, edited wiki pages, new posts in
+  threads you already have.
 
 ## How it works
 
@@ -22,122 +88,84 @@ sources ──► parsers ──► version tagging ──► chunks ──► S
 
 - **The engine** (`engine/`) is generic: a polite fetcher, parsers, storage, hybrid search,
   ranking and the MCP server.
-- **A topic pack** (`packs/<name>/`) holds the source list, any parser overrides, version
-  patterns and ranking weights. To add a topic, write a pack. The engine shouldn't need changes.
+- **A topic pack** (`packs/<name>/`) is configuration: the source list, version patterns,
+  synonyms, ranking weights and any site-specific parser overrides. To add a topic, write
+  a pack. The engine shouldn't need changes.
 
 Search combines keyword search (SQLite FTS5, BM25) with semantic search (Ollama
-`nomic-embed-text` vectors in sqlite-vec). The two lists are merged with reciprocal rank
-fusion, then reranked using signals from `ranking.yaml`:
-- Version match with the version being asked about.
-- Recency, only when the query is version-sensitive.
-- Source trust.
-- Accepted and top-voted answers.
-- First-hand evidence: error codes, logs, "this fixed it".
-- Author reputation and account age.
+`nomic-embed-text` vectors in sqlite-vec), merged with reciprocal rank fusion. A small
+cross-encoder then re-reads the top candidates against the query (FastEmbed, ONNX Runtime,
+no PyTorch). On the Esri pack's 200-question test, that raised top-1 accuracy from 73% to
+about 80%. Last, results are reranked using the pack's signals:
+- Version match with the version being asked about, e.g. `pve 8.2` or `truenas 24.10`.
+- Recency, only when the question is version-sensitive.
+- Authority: vendor docs, knowledge base and bug reports outrank forum opinion.
+- Accepted answers, vendor staff, recognized experts, and votes or likes.
+- First-hand evidence: logs, configs, "after upgrading…", "this fixed it".
+- Author reputation and account age, where the site provides them.
 
-Those signals multiply relevance rather than add to it. Optionally, a small
-cross-encoder (FastEmbed, ONNX Runtime) re-reads the top 20 candidates against the query
-first. On the pack's eval, it raised top-1 accuracy from 73% to about 80%. It's configured
-under `reranker:` in `ranking.yaml`, and the model downloads to `data/models/` on first use.
-Compare models with `librarian eval --reranker <model>`. The ranking deliberately has no
-backlink weighting, no keyword-stuffing rewards and no blanket freshness bias.
+These signals scale relevance rather than replace it, so a popular answer to a different
+question can't outrank the right one. There's deliberately no backlink weighting, no
+keyword-stuffing reward and no blanket freshness bias.
 
-## Setup
+## Setup details
 
-Requires Python 3.11+ and [Ollama](https://ollama.com) for embeddings. Without Ollama,
-search still works in keyword-only mode. It's developed on Linux; the tests also run on
-Windows and macOS in CI.
+**Platforms.** It's developed on Linux, and the tests run on Linux, Windows and macOS in CI.
+- **Sleep:** long jobs (`crawl`, `rebuild`, `embed`, `eval`) keep the machine awake while
+  they run, and the machine sleeps normally afterwards. On Linux this uses a desktop idle
+  inhibit plus `systemd-inhibit`, on Windows `SetThreadExecutionState`, and on macOS
+  `caffeinate`. Set `LIBRARIAN_NO_STAY_AWAKE=1` to turn this off.
+- **macOS:** semantic search needs a Python that can load SQLite extensions. Homebrew's
+  Python (`brew install python`) can; Apple's bundled Python, and likely the python.org
+  installer, can't. In that case the index runs keyword-only (full-text search plus the
+  reranker) and logs a warning.
 
-**Linux / macOS**
+**Settings** come from environment variables:
 
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -e ".[dev,rerank]"   # rerank = optional cross-encoder (ONNX, no PyTorch)
-ollama pull nomic-embed-text
-.venv/bin/pytest
-```
+| Variable | Default | Purpose |
+|---|---|---|
+| `LIBRARIAN_PACK` | `esri_enterprise` | Default pack for every command |
+| `LIBRARIAN_DATA` | `./data` | Databases, caches, models, test sets |
+| `LIBRARIAN_OLLAMA_URL` | `http://localhost:11434` | Ollama server |
+| `LIBRARIAN_EMBED_MODEL` / `LIBRARIAN_EMBED_DIM` | `nomic-embed-text` / `768` | Embedding model. Run `librarian embed --reset` after changing it |
+| `LIBRARIAN_CONTACT` | (empty) | A URL or email appended to the crawler's user agent |
+| `STACKEXCHANGE_KEY` | (none) | Optional, for the Esri pack: raises the Stack Exchange quota from ~300 to 10,000 requests a day ([register an app](https://stackapps.com/apps/oauth/register)) |
 
-**Windows (PowerShell)**
+Keep keys in your shell environment, never in the repo.
 
-```powershell
-py -3 -m venv .venv
-.venv\Scripts\pip install -e ".[dev,rerank]"
-ollama pull nomic-embed-text
-.venv\Scripts\pytest
-```
-
-The examples below use the Linux and macOS path `.venv/bin/librarian`. On Windows, use
-`.venv\Scripts\librarian.exe` instead.
-
-Platform notes:
-- **Sleep:** long jobs keep the machine awake automatically. On Linux this uses the desktop
-  idle inhibit plus `systemd-inhibit`, on Windows `SetThreadExecutionState`, and on macOS
-  `caffeinate`. See `engine/awake.py`.
-- **macOS:** semantic search uses `sqlite-vec`, which needs a Python that can load SQLite
-  extensions. Homebrew's Python (`brew install python`) can. Apple's bundled Python, and
-  likely the python.org installer, can't. In that case the index still works in keyword-only
-  mode (full-text search plus the reranker) and logs a warning; switch to Homebrew's Python
-  to turn semantic search on.
-
-## Crawl and search
+## Everyday commands
 
 ```bash
-.venv/bin/librarian crawl                    # all enabled sources in the default pack
-.venv/bin/librarian crawl --max-requests 20  # cap network requests per source this run
-.venv/bin/librarian stats
-.venv/bin/librarian outline                  # what the index covers: sources, boards, tags, versions
-.venv/bin/librarian search "federation fails after upgrade" --version 11.3 --explain
-.venv/bin/librarian fetch "gis_se:a:12345#c0" --scope thread
+librarian crawl [--source ID] [--max-requests N]   # fetch and index; incremental and resumable
+librarian sources                                  # sources and their access records
+librarian outline                                  # what the index covers: sources, boards, tags, versions
+librarian search "query" [--version 11.3] [--explain]
+librarian fetch "<chunk_id>" [--scope chunk|document|thread] [--max-tokens N]
+librarian rebuild                                  # re-parse saved responses (no network)
+librarian retag                                    # reapply versions.yaml to the whole index (seconds)
+librarian eval-build / eval                        # build and run the pack's retrieval test
 ```
 
-Crawls are incremental and resumable. Each source saves its position, so if a run stops
-(request budget, API quota, Ctrl-C), the next run continues from that point.
-
-Every raw API response is kept in `data/cache/`. It counts as fresh for a day, and is
-never deleted. That allows rebuilding without the network:
-
-```bash
-.venv/bin/librarian rebuild   # re-parse saved responses after changing a parser or chunking
-.venv/bin/librarian retag     # recompute version tags after editing versions.yaml (seconds)
-```
-
-Long jobs (`crawl`, `rebuild`, `embed`, `eval`) ask the desktop to stay awake while they
-run, the way a video player does, and release the request when they finish. The machine
-then sleeps normally afterwards. Set `LIBRARIAN_NO_STAY_AWAKE=1` to turn this off.
-
-`rebuild` replays from the start, using throwaway crawl state, so your real resume points
-stay untouched. Unchanged posts keep their embeddings.
-
-**Stack Exchange quota.** Without a key, the API allows about 300 requests per IP per day.
-The crawler stops when fewer than 25 remain, and you rerun it the next day. To get 10,000
-requests a day, register an app at <https://stackapps.com/apps/oauth/register> and
-`export STACKEXCHANGE_KEY=...`. Keep the key out of the repo.
-
-Settings come from environment variables:
-
-| Variable | Default |
-|---|---|
-| `LIBRARIAN_DATA` | `./data` |
-| `LIBRARIAN_OLLAMA_URL` | `http://localhost:11434` |
-| `LIBRARIAN_EMBED_MODEL` / `LIBRARIAN_EMBED_DIM` | `nomic-embed-text` / `768` |
-| `LIBRARIAN_CONTACT` | (empty), a URL or email appended to the crawler's user agent |
-
-If you change the embedding model, run `librarian embed --reset` afterwards.
+Every raw response is kept in `data/cache/`, so `rebuild` can re-parse everything after you
+change a parser or the chunking, without touching the network.
 
 ## Connect an agent (MCP)
 
-The server runs over stdio: `librarian serve --pack <pack>`. Each pack is its own server,
-with its own database and tools, so register one per topic you want an agent to use. Use
-absolute paths in the configs below.
+Each pack is its own MCP server (`librarian serve --pack <pack>`), so register one per topic
+you want an assistant to use. Use absolute paths.
 
 **Claude Code**
 
 ```bash
 # Linux / macOS
-claude mcp add esri-librarian --scope user -- /ABS/PATH/.venv/bin/librarian serve --pack esri_enterprise
+claude mcp add homelab-librarian --scope user -- /ABS/PATH/.venv/bin/librarian serve --pack homelab
 # Windows
-claude mcp add esri-librarian --scope user -- C:\ABS\PATH\.venv\Scripts\librarian.exe serve --pack esri_enterprise
+claude mcp add homelab-librarian --scope user -- C:\ABS\PATH\.venv\Scripts\librarian.exe serve --pack homelab
 ```
+
+Then start a new session. To make the assistant reach for it without being asked, add a
+line like this to your `CLAUDE.md`: *"For home server, Proxmox, TrueNAS or Docker questions,
+search the homelab-librarian MCP before answering, and cite chunk IDs."*
 
 **Claude Desktop.** Edit `claude_desktop_config.json` (Settings → Developer → Edit Config).
 The file lives in `~/Library/Application Support/Claude/` on macOS, `%APPDATA%\Claude\` on
@@ -146,13 +174,9 @@ Windows, and `~/.config/Claude/` on Linux.
 ```json
 {
   "mcpServers": {
-    "esri-librarian": {
+    "homelab-librarian": {
       "command": "/ABS/PATH/.venv/bin/librarian",
-      "args": ["serve", "--pack", "esri_enterprise"]
-    },
-    "dr650-librarian": {
-      "command": "/ABS/PATH/.venv/bin/librarian",
-      "args": ["serve", "--pack", "dr650"]
+      "args": ["serve", "--pack", "homelab"]
     }
   }
 }
@@ -161,62 +185,83 @@ Windows, and `~/.config/Claude/` on Linux.
 On Windows, use `"command": "C:\\ABS\\PATH\\.venv\\Scripts\\librarian.exe"`. JSON needs the
 backslashes doubled.
 
-Tools:
+**Tools the agent gets:**
 
 | Tool | What it returns |
 |---|---|
-| `search(query, limit, version, version_mode, date_from, date_to, source_type, source, explain)` | Compact results: chunk_id, date, versions, source, flags, score, approximate token count, URL, snippet |
-| `outline(source)` | Map of the index (sources, boards, tags, date ranges, version coverage). Read this first |
-| `fetch(chunk_id, scope)` | Full markdown with citation metadata. `scope` is `chunk`, `document` or `thread` |
-| `index_info()` | Sources, counts, date ranges, version tag counts |
+| `outline(source)` | Map of the index: sources, boards, tags, date ranges, version coverage. Read this first |
+| `search(query, limit, version, version_mode, date_from, date_to, source_type, source, explain)` | Compact results: chunk_id, date, versions, source, flags (official, accepted, staff, expert), score, approximate tokens, URL, snippet |
+| `fetch(chunk_id, scope, max_tokens)` | Full markdown with citation metadata. `scope` is `chunk`, `document` or `thread`. Threads come back accepted answer first, then staff, experts and top-voted posts, up to the token budget |
+| `index_info()` | Raw statistics |
 
-`version_mode="boost"` (the default) ranks matching versions higher. `"filter"` keeps only
-documents tagged with that version; `"11"` matches every 11.x.
+The tool descriptions coach the agent: one topic per search, pass the user's version, stop
+after a few empty searches, and say when sources disagree.
 
-## Adding a new source, end to end
+## Writing your own pack
 
-Here's how you'd add a new Stack Exchange site, then a new kind of site.
+A pack is a folder under `packs/` holding a few YAML files. Copy `packs/homelab/` as a
+starting point.
 
-### 1. Add it to the pack
+| File | What it holds |
+|---|---|
+| `sources.yaml` | Pack name and description, example queries for agents, request pacing, and the sources: each with a `parser`, `source_type`, `trust`, parser `options`, and an `access:` record |
+| `versions.yaml` | How to spot versions. Use a single `pattern`, or several `products` with prefixes, aliases (e.g. codenames) and source-scoped rules |
+| `synonyms.yaml` | Query expansion. `"ags -> arcgis server"` is one-way; `[a, b]` is two-way. One-way is usually safer |
+| `ranking.yaml` | Signal weights, which source types count as authoritative, first-hand evidence patterns, reranker settings |
 
-If an existing parser fits (here, a second Stack Exchange site), you only need config.
-Add this to `packs/esri_enterprise/sources.yaml`:
+**Parsers already available.** If your sources run on one of these, a new pack is config only:
+
+| Parser | For |
+|---|---|
+| `discourse` | Any Discourse forum, through its built-in JSON API |
+| `mediawiki` | Any MediaWiki site, through `api.php` |
+| `sitemap_html` | Docs sites: pages from sitemaps, explicit URLs or an index page, with a content selector |
+| `stackexchange` | Any Stack Exchange site, through the official API |
+| `vanilla` | Vanilla Forums communities, through API v2 |
+| `xenforo1` | XenForo 1.x forums (HTML; respects robots.txt) |
+
+**Record how you checked access.** Every source gets an `access:` block. A source whose
+verdict is `blocked` or `needs-key` is never crawled:
 
 ```yaml
-  - id: serverfault
-    parser: stackexchange
-    source_type: forum
-    trust: 0.5
-    options:
-      site: serverfault
-      tag_tiers:
-        - {tier: 1, tags: [arcgis]}
+access: {checked: 2026-11-05, robots: allowed, method: Discourse JSON API, auth: none, verdict: ok}
 ```
 
-Run `librarian crawl --source serverfault --max-requests 5` and check `librarian stats`.
+Before adding a site, check its robots.txt and whether a plain request gets real content or
+a bot challenge. Prefer an official API or export. If a site challenges or blocks the
+crawler, mark it blocked and move on; never work around it.
 
-### 2. A new kind of site needs a parser
+**Test your pack's search quality.** `librarian eval-build` picks threads that have accepted
+answers and rewrites each question in different words. By default it uses a local Ollama
+model (`LIBRARIAN_EVAL_MODEL`), which should be one that answers directly rather than
+"thinking" at length; `--rewrite none` leaves the queries blank so you can write them
+yourself. `librarian eval` then reports how often search re-finds the original thread
+(top-1, top-5, top-10). Run it before and after any ranking or synonym change. A pack needs
+a source with accepted answers for this.
 
-Always prefer an official API or data export. Only scrape when neither exists, and stop if
-the site blocks the crawler. Copy `engine/parsers/stackexchange.py` as the worked example:
+### A new kind of site needs a parser
+Copy `engine/parsers/stackexchange.py`, the most thoroughly commented example, or the closest
+existing parser:
 
 ```python
 # engine/parsers/mysite.py  (or packs/<pack>/parsers/mysite.py for a pack-only parser)
 from engine.parsers.base import CrawlContext, Document
 
 class Parser:
+    POSITION_KEY_PREFIXES = ("cursor",)          # state keys that hold crawl position
+
     def __init__(self, ctx: CrawlContext):
-        self.ctx = ctx                                    # ctx.options = this source's options
+        self.ctx = ctx                            # ctx.options = this source's options
 
     def crawl(self):
-        st = self.ctx.state.get("cursor") or {"page": 1}  # resumable position
+        st = self.ctx.state.get("cursor") or {"page": 1}   # resumable position
         while True:
-            self.ctx.check_budget()                       # respects --max-requests
+            self.ctx.check_budget()               # respects --max-requests
             data = self.ctx.fetcher.get_json("https://api.example.org/posts",
-                                             {"page": st["page"]})  # robots/throttle/cache/UA
+                                             {"page": st["page"]})   # robots/throttle/cache/UA
             for post in data["posts"]:
                 yield Document(
-                    doc_id=f"{self.ctx.source.id}:{post['id']}",  # stable forever
+                    doc_id=f"{self.ctx.source.id}:{post['id']}",     # stable forever
                     source=self.ctx.source.id, source_type=self.ctx.source.source_type,
                     kind="post", url=post["url"], title=post["title"],
                     content_md=post["markdown"], post_date=post["created"],
@@ -225,65 +270,52 @@ class Parser:
             if not data["has_more"]:
                 break
             st["page"] += 1
-            self.ctx.state.set("cursor", st)              # save progress after each page
+            self.ctx.state.set("cursor", st)      # save progress after each page
 ```
 
 Rules for parsers:
-- Make every request through `ctx.fetcher`. Never call `urllib`/`requests` directly.
+- Make every request through `ctx.fetcher`, which handles robots.txt, throttling, caching,
+  block detection and the user agent.
 - `doc_id` must be stable. Chunk IDs (`<doc_id>#c<n>`) are what agents cite.
 - Return content as markdown, plus whatever metadata the site really provides (votes,
-  accepted, staff, reputation). Leave a field `None` rather than guess.
+  accepted answers, staff status, reputation). Leave a field `None` rather than guess.
 - Replies set `parent_id` to the thread root. That makes `fetch(scope="thread")` work, and
   replies inherit the thread's version tags.
 - Parsers don't do version tagging, chunking or ranking. The engine handles those from
   pack config.
-- Don't build a parser for anything behind a login, or for sites that block crawlers.
-
-### 3. Test it
-
-Add a synthetic fixture under `tests/fixtures/`, written by hand rather than copied from
-crawled content, and a test modelled on `tests/test_pipeline.py`.
-
-### 4. Synonyms
-
-`packs/<pack>/synonyms.yaml` lists equivalent terms: renames, abbreviations and spellings,
-e.g. `[arcgis server, ags]`. If a query contains one term from a group, keyword search also
-looks for the others. Search output shows which terms were added ("also searched").
-
-### 5. Tune ranking
-
-Use `librarian search "..." --explain` to see each signal's contribution, then adjust
-`ranking.yaml`. Per-source trust is set in `sources.yaml`.
+- Add a synthetic fixture and test under `tests/`, written by hand, never copied from
+  crawled content.
 
 ## Rules this project follows
 
-- Sanctioned access only. It respects robots.txt, throttles by default (1 request per
-  second per host, longer if robots.txt asks), and identifies itself with a proper user agent.
-- It never bypasses anti-bot measures, CAPTCHAs or login walls. A blocked source is reported
-  and skipped.
-- It doesn't redistribute crawled content.
-- No client data, client names, hostnames, portal URLs or credentials go in the repo,
-  configs or fixtures.
+- **Sanctioned access only.** It obeys the robots.txt rules that address it or all crawlers
+  (`*`), including any Crawl-delay, paces requests by default, and identifies itself with an
+  honest user agent.
+- **It never works around a block:** no bypassing bot challenges, CAPTCHAs or login walls.
+  A blocked source is reported and skipped.
+- **Recipe, not data.** Crawled content is never committed or redistributed.
+- **Nothing private in the repo:** no client data, hostnames, internal URLs or credentials,
+  in code, configs or fixtures.
 
 ## Layout
 
 ```
 engine/
-  crawl/fetcher.py      polite HTTP: robots.txt, throttle, cache, block detection
-  parsers/base.py       Document, CrawlContext, parser loading
-  parsers/stackexchange.py   worked example (official API)
-  parsers/vanilla.py    Vanilla Forums API v2 (Esri Community)
-  parsers/html_md.py    stdlib HTML -> markdown
-  synonyms.py           query expansion from synonyms.yaml
+  crawl/fetcher.py      polite HTTP: robots.txt, pacing, cache, retries, block detection
+  parsers/              base.py, stackexchange (worked example), vanilla, discourse, mediawiki,
+                        sitemap_html, xenforo1, html_md (HTML -> markdown)
   index/                store (FTS5 + sqlite-vec), chunking, Ollama embeddings
-  rank/rerank.py        RRF fusion + pack-driven rerank
+  rank/                 rerank.py (fusion + pack signals), cross.py (cross-encoder)
   versions.py           version tagging from versions.yaml
-  indexer.py            crawl → tag → chunk → store → embed
-  search.py             hybrid search + fetch (shared by CLI and MCP)
+  synonyms.py           query expansion from synonyms.yaml
+  indexer.py            crawl -> tag -> chunk -> store -> embed
+  search.py             hybrid search, fetch, outline (shared by CLI and MCP)
+  evaluate.py           retrieval test: build and run
+  awake.py              keep the machine awake during long jobs
   mcp_server/server.py  MCP tools
-  cli.py                `librarian` command
-packs/esri_enterprise/
-  sources.yaml  versions.yaml  ranking.yaml  synonyms.yaml  parsers/
+  cli.py                the `librarian` command
+packs/
+  homelab/  esri_enterprise/  dr650/
 tests/
 ```
 
