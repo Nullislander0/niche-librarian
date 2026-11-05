@@ -125,6 +125,8 @@ def retag(pack: Pack) -> dict:
 
 
 def embed_missing(store: Store, batch: int = 256) -> int | str:
+    if not store.vec_ok:
+        return "skipped (this Python can't load sqlite-vec; keyword search only)"
     embedder = OllamaEmbedder.from_settings(EMBEDDING)
     if not embedder.available():
         return "skipped (Ollama unavailable); run `librarian embed` later"

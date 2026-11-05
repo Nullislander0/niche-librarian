@@ -105,7 +105,7 @@ def test_hybrid_search_ranks_accepted_answer_first(pack):
     emb = FakeEmbedder()
     store.put_embeddings([(r["id"], v) for r, v in zip(rows, emb.embed_documents([r["text"] for r in rows]))])
     res = Searcher(pack, store=store, embedder=emb).search("federation certificate 11.1", explain=True)
-    assert res["mode"] == "hybrid" and res["query_versions"] == ["11.1"]
+    assert res["mode"] == ("hybrid" if store.vec_ok else "keyword") and res["query_versions"] == ["11.1"]
     top = res["results"][0]
     assert top["chunk_id"] == "gis_se:a:2001#c0"
     assert "accepted" in top["flags"] and top["explain"]["version_exact"] == 1.0

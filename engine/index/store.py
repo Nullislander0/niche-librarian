@@ -9,6 +9,8 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+import logging
+
 import sqlite_vec
 
 from engine.parsers.base import Document
@@ -58,6 +60,8 @@ CREATE TABLE IF NOT EXISTS crawl_state (
     PRIMARY KEY (source, key)
 );
 """
+
+log = logging.getLogger(__name__)
 
 _STOP = set("a an and are as at be but by can do does for from how i in is it my of on or "
             "the this to was what when where which who why with you".split())
@@ -111,6 +115,20 @@ def fts_query(text: str, extra_phrases: list[str] | None = None) -> str:
     return " OR ".join(terms)
 
 
+def _load_sqlite_vec(db: sqlite3.Connection) -> bool:
+    """Load sqlite-vec. Some Python builds (Apple's, python.org's and GitHub's on macOS) can't
+    load SQLite extensions; the index then runs keyword-only instead of failing."""
+    try:
+        db.enable_load_extension(True)
+        sqlite_vec.load(db)
+        db.enable_load_extension(False)
+        return True
+    except (AttributeError, sqlite3.OperationalError) as e:
+        log.warning("sqlite-vec unavailable (%s): semantic search disabled, keyword search only. "
+                    "Use a Python built with loadable SQLite extensions (e.g. Homebrew's) to enable it.", e)
+        return False
+
+
 class Store:
     def __init__(self, path: Path | str, dim: int, reset_embeddings: bool = False):
         self.path = Path(path)
@@ -119,9 +137,7 @@ class Store:
         # check_same_thread=False: the MCP server calls tools from worker threads (serialised by a lock).
         self.db = sqlite3.connect(str(path), check_same_thread=False)
         self.db.row_factory = sqlite3.Row
-        self.db.enable_load_extension(True)
-        sqlite_vec.load(self.db)
-        self.db.enable_load_extension(False)
+        self.vec_ok = _load_sqlite_vec(self.db)
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
         self.dim = dim
@@ -129,6 +145,9 @@ class Store:
             self.db.execute("DROP TABLE IF EXISTS chunks_vec")
             self.db.execute("UPDATE chunks SET embedded=0")
             self.db.execute("DELETE FROM meta WHERE key='embedding_dim'")
+        if not self.vec_ok:
+            self.db.commit()
+            return
         stored = self.db.execute("SELECT value FROM meta WHERE key='embedding_dim'").fetchone()
         if stored and int(stored[0]) != dim:
             raise RuntimeError(f"index was built with embedding dim {stored[0]}, settings say {dim}; "
@@ -183,7 +202,8 @@ class Store:
         ids = [r[0] for r in self.db.execute("SELECT id FROM chunks WHERE doc_id=?", (doc_id,))]
         for rid in ids:
             self.db.execute("DELETE FROM chunks_fts WHERE rowid=?", (rid,))
-            self.db.execute("DELETE FROM chunks_vec WHERE rowid=?", (rid,))
+            if self.vec_ok:
+                self.db.execute("DELETE FROM chunks_vec WHERE rowid=?", (rid,))
         self.db.execute("DELETE FROM chunks WHERE doc_id=?", (doc_id,))
 
     def refresh_top_voted(self, source: str) -> None:
@@ -201,6 +221,8 @@ class Store:
             "WHERE c.embedded=0 ORDER BY c.id LIMIT ?", (limit,)).fetchall()
 
     def put_embeddings(self, rows: list[tuple[int, list[float]]]) -> None:
+        if not self.vec_ok:
+            return
         for rid, vec in rows:
             self.db.execute("DELETE FROM chunks_vec WHERE rowid=?", (rid,))
             self.db.execute("INSERT INTO chunks_vec (rowid, embedding) VALUES (?, ?)",
@@ -222,6 +244,8 @@ class Store:
         return [r[0] for r in rows]
 
     def vec_search(self, vec: list[float], filters: Filters, k: int) -> list[int]:
+        if not self.vec_ok:
+            return []
         # vec0 KNN can't join on our filters, so over-fetch and filter afterwards.
         overfetch = k * 4 if any(asdict(filters).values()) else k
         hits = self.db.execute(

@@ -73,9 +73,11 @@ Platform notes:
 - **Sleep:** long jobs keep the machine awake automatically. On Linux this uses the desktop
   idle inhibit plus `systemd-inhibit`, on Windows `SetThreadExecutionState`, and on macOS
   `caffeinate`. See `engine/awake.py`.
-- **macOS:** the python.org and Homebrew builds of Python support the SQLite extensions that
-  `sqlite-vec` needs. Apple's bundled `/usr/bin/python3` may not, so use a python.org or
-  Homebrew Python.
+- **macOS:** semantic search uses `sqlite-vec`, which needs a Python that can load SQLite
+  extensions. Homebrew's Python (`brew install python`) can. Apple's bundled Python, and
+  likely the python.org installer, can't. In that case the index still works in keyword-only
+  mode (full-text search plus the reranker) and logs a warning; switch to Homebrew's Python
+  to turn semantic search on.
 
 ## Crawl and search
 

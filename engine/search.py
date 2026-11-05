@@ -67,7 +67,7 @@ class Searcher:
         expansions = self.synonyms.expand(query)
         lists = [self.store.fts_search(query, filters, k, expansions)]
         mode = "keyword"
-        if self.embedder and self.embedder.available():
+        if self.store.vec_ok and self.embedder and self.embedder.available():
             try:
                 lists.append(self.store.vec_search(self.embedder.embed_query(query), filters, k))
                 mode = "hybrid"
