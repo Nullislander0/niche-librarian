@@ -200,6 +200,13 @@ def propose(pack: Pack, url: str, note: str | None = None, store=None, by: str =
     url = _norm(url)
     if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
         return "Only http(s) URLs can be indexed."
+    from engine.crawl.fetcher import check_public
+    try:
+        check_public(url)                       # refuse local and private addresses before queueing
+    except BlockedError as e:
+        return f"Not queued: {e}"
+    except FetchError:
+        pass                                    # can't resolve it now: checked again when fetched
     q = load(pack.id)
     if url in q["approved"]:
         return "Already approved for the index."
