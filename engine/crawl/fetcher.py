@@ -105,8 +105,9 @@ class Fetcher:
     # -- public -----------------------------------------------------------
 
     def get_text(self, url: str, params: dict | None = None, ttl: int | None = None,
-                 public_only: bool | None = None) -> str:
-        """public_only=True (or the fetcher's default) refuses private and local addresses."""
+                 public_only: bool | None = None, headers: dict | None = None) -> str:
+        """public_only=True (or the fetcher's default) refuses private and local addresses.
+        headers (e.g. an API token) are sent but never part of the cache key or the cache file."""
         full = build_url(url, params)
         public = self.public_only if public_only is None else public_only
         if public and not self.offline:
@@ -122,12 +123,13 @@ class Fetcher:
             if cached is not None:
                 return cached
         self._check_robots(full)
-        body = self._request(full, public)
+        body = self._request(full, public, headers)
         self._cache_write(full, body)
         return body
 
-    def get_json(self, url: str, params: dict | None = None, ttl: int | None = None):
-        return json.loads(self.get_text(url, params, ttl))
+    def get_json(self, url: str, params: dict | None = None, ttl: int | None = None,
+                 headers: dict | None = None):
+        return json.loads(self.get_text(url, params, ttl, headers=headers))
 
     def pause_host(self, url: str, seconds: float) -> None:
         """Honour a server-requested backoff (e.g. Stack Exchange's `backoff` field)."""
@@ -143,10 +145,10 @@ class Fetcher:
             time.sleep(wait)
         self._next_allowed[host] = time.monotonic() + self._host_interval.get(host, self.min_interval)
 
-    def _request(self, url: str, public_only: bool = False) -> str:
+    def _request(self, url: str, public_only: bool = False, headers: dict | None = None) -> str:
         host = urllib.parse.urlsplit(url).netloc
         req = urllib.request.Request(
-            url, headers={"User-Agent": self.user_agent, "Accept-Encoding": "gzip, deflate"}
+            url, headers={"User-Agent": self.user_agent, "Accept-Encoding": "gzip, deflate", **(headers or {})}
         )
         delay = 5.0
         for attempt in range(self.max_retries + 1):

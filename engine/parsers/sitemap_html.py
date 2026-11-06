@@ -9,11 +9,14 @@ Options (sources.yaml):
   urls: [https://docs.example.com/faq.html]                     # extra pages, listed explicitly
   index_pages: [https://docs.example.com/]                      # pages whose links are followed
   index_link_pattern: 'chapter-[\w-]+\.html$'                    # ...one level deep, if they match
+  follow_depth: 1                                                  # hops of links to follow from index pages
+  max_pages: 2000                                                  # cap on pages found that way
   include: ['^https://docs\\.example\\.com/en/product/']         # regexes; all if empty
   exclude: ['/release-notes/archive/']
   content: {tag: article, id: main}      # element holding the page body (or class:)
   title_strip: ' \\| .*documentation$'    # regex removed from the page title
   version_meta: version                  # <meta name="version"> -> explicit version tag
+  version_from_url: '/(\d+\.\d+)/'        # or take it from the page URL (group 1)
   version_prefix: pro                    # ...tagged "pro 3.7" (for packs with several products)
   version_prefix_by:                     # or choose the prefix from another meta tag, first match wins
     - {meta: product, match: 'ArcGIS Pro', prefix: pro}
@@ -115,11 +118,14 @@ class Parser:
         self.extra_urls = o.get("urls", [])
         self.index_pages = o.get("index_pages", [])
         self.index_link = re.compile(o["index_link_pattern"]) if o.get("index_link_pattern") else None
+        self.follow_depth = int(o.get("follow_depth", 1))
+        self.max_pages = int(o.get("max_pages", 2000))
         self.include = [re.compile(p) for p in o.get("include", [])]
         self.exclude = [re.compile(p) for p in o.get("exclude", [])]
         self.content = o.get("content", {"tag": "main"})
         self.title_strip = re.compile(o["title_strip"]) if o.get("title_strip") else None
         self.version_meta = o.get("version_meta")
+        self.version_url = re.compile(o["version_from_url"]) if o.get("version_from_url") else None
         self.version_prefix = o.get("version_prefix")
         self.version_prefix_by = [(r["meta"].lower(), re.compile(r["match"], re.I), r["prefix"])
                                   for r in o.get("version_prefix_by", [])]
@@ -172,14 +178,31 @@ class Parser:
                         and not any(p.search(loc) for p in self.exclude):
                     urls.append(loc)
         urls += self.extra_urls
-        for idx in self.index_pages:
-            self.ctx.check_budget()
-            body = self.ctx.fetcher.get_text(idx, ttl=86400)
-            for href in re.findall(r'href="([^"#]+)"', body):
-                full = urllib.parse.urljoin(idx, html.unescape(href))
-                if (not self.index_link or self.index_link.search(full)) and \
-                        not any(p.search(full) for p in self.exclude):
-                    urls.append(full)
+        # Index pages, then (follow_depth > 1) the pages they link to, breadth first, keeping to
+        # links that match index_link_pattern. Pages read here are cached for the content pass.
+        frontier, found = list(self.index_pages), set()
+        for depth in range(self.follow_depth):
+            nxt = []
+            for idx in frontier:
+                if len(found) >= self.max_pages:
+                    break
+                self.ctx.check_budget()
+                try:
+                    body = self.ctx.fetcher.get_text(idx, ttl=self.refresh if depth else 86400)
+                except FetchError as e:
+                    if e.status not in (404, 410):
+                        raise
+                    continue
+                for href in re.findall(r'href="([^"#]+)"', body):
+                    full = urllib.parse.urljoin(idx, html.unescape(href))
+                    if full in found or len(found) >= self.max_pages:
+                        continue
+                    if (not self.index_link or self.index_link.search(full)) and \
+                            not any(p.search(full) for p in self.exclude):
+                        found.add(full)
+                        urls.append(full)
+                        nxt.append(full)
+            frontier = nxt
         self.ctx.log.info("%d pages listed", len(urls))
         urls = sorted(set(urls))
         if self.sort:
@@ -222,6 +245,8 @@ class Parser:
             if m:
                 details[k] = m.group(1).strip()
         versions = [meta[self.version_meta]] if self.version_meta and meta.get(self.version_meta) else []
+        if self.version_url and (m := self.version_url.search(url)):
+            versions.append(m.group(1))
         versions += [details[k] for k in self.versions_from
                      if re.fullmatch(r"\d+(\.\d+)+", details.get(k, "") or "")]
         versions = [v.strip().lstrip("vV") for v in versions]

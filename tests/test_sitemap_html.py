@@ -195,3 +195,23 @@ def test_cache_ignores_and_never_stores_api_keys(tmp_path):
     assert f._cache_read("https://api.example.com/q?site=gis&key=NEWKEY456&page=2", 10**9) == "body"
     assert "OLDKEY123" not in "".join(p.read_text() for p in tmp_path.rglob("*.json"))
     assert fm.cache_key("https://x.example/a?b=1") == "https://x.example/a?b=1"      # untouched without keys
+
+
+def test_index_pages_followed_several_hops_within_the_pattern():
+    from engine.config import SourceConfig
+    from engine.parsers.base import CrawlContext
+    from engine.parsers.sitemap_html import Parser
+    site = {"https://d.example/v1/a.htm": '<a href="b.htm">b</a><a href="/v2/x.htm">other version</a>',
+            "https://d.example/v1/b.htm": '<a href="c.htm">c</a><a href="a.htm">a</a>',
+            "https://d.example/v1/c.htm": '<a href="d.htm">d</a>'}
+
+    class F:
+        network_requests = 0
+        def get_text(self, url, params=None, ttl=None, **kw):
+            return site.get(url, "<main><h1>T</h1><p>body text here for the page</p></main>")
+    src = SourceConfig(id="d", parser="sitemap_html", source_type="docs", options={
+        "index_pages": ["https://d.example/v1/a.htm"], "index_link_pattern": r"/v1/[\w-]+\.htm$",
+        "follow_depth": 3, "max_pages": 10, "content": {"tag": "main"}})
+    urls = Parser(CrawlContext(source=src, fetcher=F(), state={}))._urls()
+    assert urls == ["https://d.example/v1/a.htm", "https://d.example/v1/b.htm", "https://d.example/v1/c.htm",
+                    "https://d.example/v1/d.htm"]                       # never the other version
