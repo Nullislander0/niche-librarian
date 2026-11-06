@@ -28,7 +28,7 @@ class FakeFetcher:
     def __init__(self, pages):
         self.pages = pages
 
-    def get_text(self, url, params=None, ttl=None):
+    def get_text(self, url, params=None, ttl=None, **kw):
         page = self.pages[url]
         if isinstance(page, Exception):
             raise page
@@ -119,3 +119,28 @@ def test_agent_budget_keeps_a_quarter_for_watches(tmp_path, monkeypatch):
     ok, why = websearch.agent_budget(now=now)
     assert not ok and "500 kept for watches" in why
     assert websearch.agent_budget(now=now + 90000)[0]      # new month
+
+
+def test_agent_urls_cannot_reach_private_or_local_addresses(monkeypatch):
+    import socket
+    from engine.crawl import fetcher as fm
+    for url in ("http://127.0.0.1:11434/api/tags", "http://10.0.0.5/", "http://192.168.1.1/admin",
+                "http://169.254.169.254/latest/meta-data/", "http://[::1]/", "http://localhost:8080/"):
+        try:
+            fm.check_public(url)
+            assert False, url
+        except fm.BlockedError as e:
+            assert "private or local" in str(e)
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, port: [(None, None, None, "", ("93.184.216.34", 0))])
+    fm.check_public("https://example.com/page")                      # a public address passes
+    # A public page that redirects onto the local network is refused too.
+    handler = fm._PublicRedirects()
+    try:
+        handler.redirect_request(None, None, 302, "Found", {}, "http://127.0.0.1:11434/")
+        assert False
+    except fm.BlockedError:
+        pass
+    # read_url relays the refusal instead of fetching.
+    pack = load_pack("esri_enterprise")
+    f = fm.Fetcher("ua", "/tmp/unused-cache", min_interval=0)
+    assert "private or local" in webpages.read_url(pack, "http://192.168.1.1/", f)

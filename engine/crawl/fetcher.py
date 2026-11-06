@@ -9,9 +9,11 @@ from __future__ import annotations
 import gzip
 import hashlib
 import http.client
+import ipaddress
 import json
 import logging
 import re
+import socket
 import time
 import urllib.error
 import urllib.parse
@@ -44,6 +46,32 @@ class CacheMiss(FetchError):
     """Offline mode: the response isn't in the local cache."""
 
 
+def check_public(url: str) -> None:
+    """Refuse URLs whose host is, or resolves to, a private, loopback, link-local or otherwise
+    non-public address (your router, localhost services, cloud metadata endpoints). Used for
+    URLs that come from agents or web pages rather than from a pack's own config."""
+    host = urllib.parse.urlsplit(url).hostname
+    if not host:
+        raise BlockedError(f"no host in {url}")
+    try:
+        addrs = {ipaddress.ip_address(host)}
+    except ValueError:
+        try:
+            addrs = {ipaddress.ip_address(a[4][0].split("%")[0]) for a in socket.getaddrinfo(host, None)}
+        except (socket.gaierror, UnicodeError) as e:
+            raise FetchError(f"cannot resolve {host}: {e}") from e
+    for ip in addrs:
+        ip = getattr(ip, "ipv4_mapped", None) or ip
+        if not ip.is_global or ip.is_multicast:
+            raise BlockedError(f"{host} is a private or local address ({ip}); not fetched")
+
+
+class _PublicRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        check_public(newurl)          # a public page must not redirect us onto the local network
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 class Fetcher:
     def __init__(
         self,
@@ -55,6 +83,7 @@ class Fetcher:
         max_retries: int = 3,
         respect_robots: bool = False,
         robots_eu: bool = True,
+        public_only: bool = False,
         offline: bool = False,
     ):
         self.user_agent = user_agent
@@ -65,6 +94,8 @@ class Fetcher:
         self.max_retries = max_retries
         self.respect_robots = respect_robots
         self.robots_eu = robots_eu
+        self.public_only = public_only      # refuse private/local addresses, including via redirects
+        self._public_opener = urllib.request.build_opener(_PublicRedirects())
         self.offline = offline  # replay from cache only; never touch the network
         self.network_requests = 0
         self._next_allowed: dict[str, float] = {}
@@ -73,8 +104,13 @@ class Fetcher:
 
     # -- public -----------------------------------------------------------
 
-    def get_text(self, url: str, params: dict | None = None, ttl: int | None = None) -> str:
+    def get_text(self, url: str, params: dict | None = None, ttl: int | None = None,
+                 public_only: bool | None = None) -> str:
+        """public_only=True (or the fetcher's default) refuses private and local addresses."""
         full = build_url(url, params)
+        public = self.public_only if public_only is None else public_only
+        if public and not self.offline:
+            check_public(full)
         ttl = self.cache_ttl if ttl is None else ttl
         if self.offline:
             cached = self._cache_read(full, float("inf"))
@@ -86,7 +122,7 @@ class Fetcher:
             if cached is not None:
                 return cached
         self._check_robots(full)
-        body = self._request(full)
+        body = self._request(full, public)
         self._cache_write(full, body)
         return body
 
@@ -107,7 +143,7 @@ class Fetcher:
             time.sleep(wait)
         self._next_allowed[host] = time.monotonic() + self._host_interval.get(host, self.min_interval)
 
-    def _request(self, url: str) -> str:
+    def _request(self, url: str, public_only: bool = False) -> str:
         host = urllib.parse.urlsplit(url).netloc
         req = urllib.request.Request(
             url, headers={"User-Agent": self.user_agent, "Accept-Encoding": "gzip, deflate"}
@@ -117,7 +153,8 @@ class Fetcher:
             self._throttle(host)
             self.network_requests += 1
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                opener = self._public_opener.open if public_only else urllib.request.urlopen
+                with opener(req, timeout=self.timeout) as resp:
                     body = _decode(resp.read(), resp.headers)
                     ctype = resp.headers.get("Content-Type", "")
                 if "html" in ctype and _CHALLENGE.search(body[:20000]):

@@ -188,3 +188,68 @@ def apply_to_store(pack, store, tagger=None) -> dict:
         changed += 1
         index_document(store, tagger, doc)
     return {"pseudonymized": changed, "mode": mode}
+
+
+def _leak_patterns(handle: str, text: str) -> list[re.Pattern]:
+    """How a handle could still appear: as a bare word if it can't be an ordinary word, and in
+    the forms the scrubber handles (mentions, greetings, attributions, sign-offs, possessives)."""
+    h = re.escape(handle)
+    pats = [rf"(?<![\w@])@{h}(?!\w)", rf"{_GREETING}{h}(?!\w)", rf"(?<![\w@]){h}(?={_ATTRIBUTION})",
+            rf"(?m)^[\s*_-]*{h}[\s*_.!-]*$", rf"(?<![\w@]){h}['’]s\s+(?:original\s+)?(?:post|posting|reply|thread)\b",
+            rf"\[{h} said:\]"]
+    if _handle_shaped(handle, text):
+        pats.append(rf"(?<![\w@/\[-]){h}(?![\w-])")
+    return [re.compile(p, re.I) for p in pats]
+
+
+def audit(pack, store, sources: list[str] | None = None, offline_fetcher=None) -> dict:
+    """Check a pseudonymized pack's index for anything that identifies a poster.
+
+    Original handles are recovered by replaying the crawl from the local cache (no network)
+    and held in memory only. Reports counts and document ids, never the handles themselves.
+    """
+    from engine.indexer import _MemoryState, make_fetcher
+    from engine.parsers.base import CrawlContext, load_parser
+    if pack.author_mode == "keep":
+        return {"checked": 0, "leaks": 0, "note": "privacy.authors is 'keep' for this pack"}
+    fetcher = offline_fetcher or make_fetcher(pack, offline=True)
+    report: dict = {"sources": {}, "leaks": 0}
+    for src in pack.sources:
+        if src.source_type == "data" or (sources and src.id not in sources):
+            continue
+        rows = store.db.execute("SELECT doc_id, title, content_md FROM documents WHERE source=?", (src.id,)).fetchall()
+        if not rows:
+            continue
+        handles: set[str] = set()
+        try:
+            for d in load_parser(src.parser, pack.path)(CrawlContext(source=src, fetcher=fetcher,
+                                                                     state=_MemoryState())).crawl():
+                if d.author:
+                    handles.add(d.author)
+        except Exception:      # replay stops at the first page not in the cache; what was read still counts
+            pass
+        chunks: dict[str, list[str]] = {}
+        for doc_id, text in store.db.execute(
+                "SELECT c.doc_id, c.text FROM chunks c JOIN documents d ON d.doc_id = c.doc_id WHERE d.source=?", (src.id,)):
+            chunks.setdefault(doc_id, []).append(text)
+        found: dict[str, list[str]] = {}
+        for doc_id, title, content in rows:
+            text = "\n".join([title or "", content or "", *chunks.get(doc_id, [])])
+            kinds = []
+            if _PROFILE_URL.search(text) or _PROFILE_LINK.search(text):
+                kinds.append("profile link")
+            if _EMAIL.search(text):
+                kinds.append("email")
+            if _PHONE.search(text):
+                kinds.append("phone")
+            if any(p.search(text) for h in handles for p in _leak_patterns(h, text)):
+                kinds.append("handle")
+            if kinds:
+                found[doc_id] = kinds
+        authors = store.db.execute("SELECT COUNT(*) FROM documents WHERE source=? AND author IS NOT NULL "
+                                   "AND author NOT LIKE 'P-%'", (src.id,)).fetchone()[0]
+        report["sources"][src.id] = {"documents": len(rows), "handles_known": len(handles),
+                                     "raw_author_fields": authors, "documents_with_leaks": len(found),
+                                     "leaks": {d: k for d, k in list(found.items())[:20]}}
+        report["leaks"] += len(found) + authors
+    return report

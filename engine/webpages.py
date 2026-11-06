@@ -136,7 +136,7 @@ def fetch_page(fetcher, url: str, ttl: int | None = None) -> dict:
     if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
         raise PageError("only http(s) URLs can be read")
     try:
-        body = fetcher.get_text(url, ttl=ttl)
+        body = fetcher.get_text(url, ttl=ttl, public_only=True)   # agent-supplied URLs: public hosts only
     except BlockedError as e:
         raise PageError(f"not fetched: {e}") from e
     except FetchError as e:

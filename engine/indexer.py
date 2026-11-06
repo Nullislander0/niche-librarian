@@ -123,6 +123,16 @@ def crawl(pack: Pack, source_ids: list[str] | None = None, max_requests: int | N
             report[src.id] = {"documents_seen": seen, "new_or_changed": changed,
                               "network_requests": ctx.requests_made, "status": status}
             log.info("%s: %s", src.id, report[src.id])
+        if privacy and not offline:   # check what this crawl indexed for anything identifying
+            from engine.privacy import audit
+            crawled = [s for s in report if s in {x.id for x in pack.sources}]
+            res = audit(pack, store, crawled)
+            report["privacy_audit"] = {"leaks": res["leaks"],
+                                       "sources": {k: v["documents_with_leaks"] + v["raw_author_fields"]
+                                                   for k, v in res["sources"].items()}}
+            if res["leaks"]:
+                log.warning("privacy audit found %d documents with identifying details; run "
+                            "`librarian privacy audit` for the list", res["leaks"])
         if embed:
             report["embedded_chunks"] = embed_missing(store)
     finally:

@@ -35,7 +35,13 @@ def _load_env_file() -> None:
 _load_env_file()
 
 ROOT = Path(__file__).resolve().parent.parent
-PACKS_DIR = Path(os.environ.get("LIBRARIAN_PACKS", ROOT / "packs"))
+PACKS_DIR = ROOT / "packs"   # packs that ship with the repo (public recipes)
+# Where packs are looked up, first match wins: your private packs folder (outside the repo, so
+# private recipes can never be committed or pushed), then the repo's own packs. Override with
+# LIBRARIAN_PACKS, a list of folders separated by os.pathsep (":" on Linux/macOS, ";" on Windows).
+PRIVATE_PACKS_DIR = Path.home() / ".config" / "niche-librarian" / "packs"
+PACK_DIRS = [Path(p) for p in os.environ["LIBRARIAN_PACKS"].split(os.pathsep) if p] \
+    if os.environ.get("LIBRARIAN_PACKS") else [PRIVATE_PACKS_DIR, PACKS_DIR]
 DATA_DIR = Path(os.environ.get("LIBRARIAN_DATA", ROOT / "data"))
 
 # Engine-level settings, overridable by environment variables.
@@ -125,11 +131,18 @@ def _read_yaml(path: Path) -> dict:
 
 
 def list_packs() -> list[str]:
-    return sorted(p.name for p in PACKS_DIR.iterdir() if (p / "sources.yaml").exists())
+    return sorted({p.name for d in PACK_DIRS if d.is_dir() for p in d.iterdir() if (p / "sources.yaml").exists()})
+
+
+def pack_path(pack_id: str) -> Path:
+    for d in PACK_DIRS:
+        if (d / pack_id / "sources.yaml").exists():
+            return d / pack_id
+    return PACK_DIRS[-1] / pack_id
 
 
 def load_pack(pack_id: str) -> Pack:
-    path = PACKS_DIR / pack_id
+    path = pack_path(pack_id)
     meta = _read_yaml(path / "sources.yaml")
     if not meta:
         raise FileNotFoundError(f"no pack at {path} (expected sources.yaml); available: {list_packs()}")

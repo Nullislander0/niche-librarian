@@ -204,7 +204,7 @@ crawlers, one-off pages) the agent gets three more MCP tools:
 | Tool | What it does | Writes anything? |
 |---|---|---|
 | `web_search` | live Brave search (`news=true` for the news index), results marked `[indexed]` / `[host crawled by source …]` / `[blocked host]`. Only offered when `BRAVE_API_KEY` is set | no |
-| `read_url` | fetches one page politely (paced, block and challenge detection) and returns markdown for this answer | no |
+| `read_url` | fetches one page politely (paced, block and challenge detection; public addresses only, so an agent can't reach your local network) and returns markdown for this answer | no |
 | `index_url` | **proposes** a page for the index | a queue entry only |
 
 Nothing an agent finds goes into your index until you approve it:
@@ -281,7 +281,9 @@ handles are scrubbed from quotes, @mentions, greetings and attributions in the t
 phone numbers are removed, and profile numbers are coarsened. The `signals` report then counts
 **posters** as well as posts, and shows switch flows: posters who mentioned one term and later
 another. `librarian privacy apply` converts documents already in the index; `librarian rebuild`
-re-scrubs from the cache with every handle known. The key is created in `data/secrets/` (back
+re-scrubs from the cache with every handle known. `librarian privacy audit` checks the index for
+anything left (handles, profile links, emails, phone numbers) without printing the handles; it
+also runs after every crawl of a pseudonymized pack. The key is created in `data/secrets/` (back
 it up: a new key means new pseudonyms). Pseudonymized isn't anonymous: post text and URLs can
 lead back to the original post, and the local page cache keeps the raw pages for rebuilds.
 
@@ -332,6 +334,24 @@ backslashes doubled.
 
 The tool descriptions coach the agent: one topic per search, pass the user's version, stop
 after a few empty searches, and say when sources disagree.
+
+## Private packs and reports
+
+Packs are looked up in two places, first match wins: your private packs folder,
+`~/.config/niche-librarian/packs/`, then the repo's `packs/`. Keep any recipe you don't want
+published (client topics, internal sources) in the private folder: it lives outside the repo,
+so it can't be committed or pushed. A private pack with the same name as a repo pack replaces
+it locally. Set `LIBRARIAN_PACKS` to a `:`-separated list of folders (`;` on Windows) to change
+the search path.
+
+Reports and other results belong under `data/` (e.g. `data/reports/<pack>/`), which git
+ignores. Two guards back this up: `tools/pre-push` is a git hook that refuses a push containing
+reports, data, secrets or a pack that also exists in your private folder (install it with
+`cp tools/pre-push .git/hooks/pre-push`), and a test fails in CI if any such file is tracked.
+
+For reports, `librarian memo-data` (also the MCP `memo_data` tool) computes every number once:
+latest and previous value, change, periods and the document to cite, with incomplete FDA
+months left out, so a writing agent never does arithmetic.
 
 ## Writing your own pack
 

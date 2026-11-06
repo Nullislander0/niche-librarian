@@ -184,6 +184,21 @@ def build_server(pack_id: str) -> MCPServer:
         with lock:
             return webpages.propose(pack, url, note, store=searcher.store)
 
+    @server.tool()
+    def memo_data(as_json: bool = False) -> str:
+        """All report numbers, precomputed: for every tracked term and official-data measure, the
+        latest value, the previous one, the change, the periods, and the document id to cite;
+        plus forum posts, posters and switch flows. Use these numbers as given in reports;
+        don't recompute them.
+
+        Args:
+            as_json: return structured JSON instead of markdown tables.
+        """
+        from engine import memo_data as md
+        with lock:
+            data = md.build(pack, searcher.store)
+        return json.dumps(data, indent=1) if as_json else md.to_markdown(data)
+
     if pack.signals.get("terms"):
         @server.tool()
         def signals(term: str | None = None, by: str = "week", periods: int = 8) -> str:

@@ -1,5 +1,9 @@
+import os
 import sys
 from pathlib import Path
+
+# Tests use only the packs in the repo, never a private packs folder on this machine.
+os.environ["LIBRARIAN_PACKS"] = str(Path(__file__).resolve().parent.parent / "packs")
 
 import pytest
 

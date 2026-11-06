@@ -6,6 +6,7 @@ __pycache__/
 data/
 *.db
 
-# Private work, kept on this machine only
-packs/harrow/
-docs/*Digest*.md
+# Results and private work never go in the repo (see "Private packs and reports" in the README)
+reports/
+*Digest*.md
+*.bundle

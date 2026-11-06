@@ -99,3 +99,31 @@ def test_case_insensitive_greetings_sign_offs_and_possessives(monkeypatch):
     for gone in ("nevil", "Lelagy", "Ariel's", "\nMax\n"):
         assert gone not in out, gone
     assert "Max dosage is fine" in out and "is a member here" in out
+
+
+def test_audit_finds_leftovers_without_printing_handles(tmp_path, monkeypatch):
+    from engine.config import SourceConfig
+    monkeypatch.setattr(privacy, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(privacy, "_WORDS", {"word"})
+    pack = copy.deepcopy(load_pack("homelab"))
+    pack.privacy = {"authors": "pseudonymize"}
+    pack.sources = [SourceConfig(id="f", parser="fake", source_type="forum")]
+    store = Store(":memory:", 16)
+    p = privacy.Pseudonymizer()
+    clean = p.apply(post(1, "Zorblax", "fine post", 1))
+    leaky = post(2, "Quintessa", "Thanks Zorblax! mail me at a@b.co", 2)
+    leaky.author = p.pseudonym("f", "name:quintessa")
+    for d in (clean, leaky):
+        store.upsert(d, [], [d.content_md])
+
+    class Replay:                                   # stands in for replaying the cache
+        def __init__(self, ctx): pass
+        def crawl(self): return iter([post(1, "Zorblax", "x", 1), post(2, "Quintessa", "x", 2)])
+    monkeypatch.setattr("engine.parsers.base.load_parser", lambda name, path: Replay)
+    class NoNet:
+        network_requests = 0
+    res = privacy.audit(pack, store, offline_fetcher=NoNet())
+    f = res["sources"]["f"]
+    assert f["handles_known"] == 2 and f["documents_with_leaks"] == 1 and res["leaks"] == 1
+    assert set(f["leaks"]["f:p:2"]) == {"handle", "email"}
+    assert "Zorblax" not in json.dumps(res) and "Quintessa" not in json.dumps(res)

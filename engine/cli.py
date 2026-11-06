@@ -122,8 +122,13 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--periods", type=int, default=8)
     sp.add_argument("--json", action="store_true")
 
+    md = sub.add_parser("memo-data", parents=[common], help="report numbers: latest, previous, change, source")
+    md.add_argument("--json", action="store_true")
+    md.add_argument("--out", help="also write to this file")
+
     pv = sub.add_parser("privacy", parents=[common], help="apply the pack's privacy setting to documents already indexed")
-    pv.add_argument("action", choices=["apply"])
+    pv.add_argument("action", choices=["apply", "audit"], help="apply: pseudonymize what's indexed; "
+                    "audit: check the index for leftover handles, profile links, emails, phone numbers")
 
     wr2 = sub.add_parser("web-results", parents=[common], help="stored web search results (storage-rights plans)")
     wr2.add_argument("action", choices=["count", "purge"])
@@ -212,10 +217,25 @@ def main(argv: list[str] | None = None) -> None:
             else:
                 agg = signals.aggregate(pack, store, a.by, a.periods, a.term, a.source)
                 print(json.dumps(agg, indent=2) if a.json else signals.format_report(agg))
+        elif a.cmd == "memo-data":
+            from engine import memo_data
+            from engine.indexer import open_store
+            data = memo_data.build(pack, open_store(pack))
+            text = json.dumps(data, indent=2) if a.json else memo_data.to_markdown(data)
+            print(text)
+            if a.out:
+                with open(a.out, "w", encoding="utf-8") as fh:
+                    fh.write(text + "\n")
         elif a.cmd == "privacy":
             from engine.indexer import embed_missing, open_store
-            from engine.privacy import apply_to_store
+            from engine.privacy import apply_to_store, audit
             store = open_store(pack)
+            if a.action == "audit":
+                res = audit(pack, store)
+                print(json.dumps(res, indent=2))
+                if res.get("leaks"):
+                    sys.exit(1)
+                return
             res = apply_to_store(pack, store)
             res["embedded_chunks"] = embed_missing(store)
             print(json.dumps(res, indent=2))
