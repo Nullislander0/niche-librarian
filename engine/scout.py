@@ -6,7 +6,8 @@
 2. Hits are grouped by site and ranked: sites with many forum-thread hits come first.
 3. Each top site gets one polite visit through the crawler's Fetcher: robots.txt, then one
    of its thread pages. That identifies the forum software (Discourse, XenForo, Vanilla,
-   phpBB, ...) and runs the access check: robots for our user agent, bot challenges, logins.
+   phpBB, ...) and runs the access check: bot challenges, logins, robots.txt (reported; enforced
+   only for EU/EEA hosts).
 4. Sites whose software has a parser get a draft `sources.yaml` entry with its `access:`
    block filled in. You still choose the boards or categories and review it before crawling.
 
@@ -17,6 +18,7 @@ from __future__ import annotations
 import re
 import time
 import urllib.parse
+import urllib.robotparser
 from collections import defaultdict
 
 from engine.config import CRAWLER, DATA_DIR, Pack
@@ -144,7 +146,10 @@ def check_site(site: dict, fetcher: Fetcher) -> dict:
     except FetchError as e:
         r.update(robots="allowed", verdict="?", notes=str(e)[:160])
         return r
-    r["robots"] = "allowed" if txt else "none (all allowed)"
+    rp = urllib.robotparser.RobotFileParser()
+    rp.parse(txt.splitlines())
+    r["robots"] = ("none (all allowed)" if not txt else "allowed" if rp.can_fetch(getattr(fetcher, "user_agent", CRAWLER["user_agent"]), url)
+                   else "disallows us (not enforced)")
     r["platform"] = detect(page)
     if re.search(r"(?i)(log ?in|sign ?in) to (view|read|continue)|members only", page[:200000]) and \
             len(re.sub(r"<[^>]+>", "", page)) < 5000:
@@ -183,8 +188,11 @@ def run(topic: str, pack: Pack | None = None, client=None, fetcher: Fetcher | No
         max_sites: int = 12, extra_queries: list[str] | None = None, count: int = 20, log=print) -> dict:
     from engine.websearch import backend
     client = client or backend("brave")
+    c = pack.crawler if pack else CRAWLER
+    respect, eu = bool(c.get("respect_robots", False)), bool(c.get("robots_eu", True))
     fetcher = fetcher or Fetcher(CRAWLER["user_agent"], DATA_DIR / "cache" / "scout",
-                                 min_interval=CRAWLER["min_interval_seconds"], timeout=20, max_retries=1)
+                                 min_interval=CRAWLER["min_interval_seconds"], timeout=20, max_retries=1,
+                                 respect_robots=respect, robots_eu=eu)
     hits = []
     for q in queries(topic, extra_queries):
         log(f"searching: {q}")

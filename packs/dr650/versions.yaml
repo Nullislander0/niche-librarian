@@ -1,5 +1,0 @@
-# Model years (the DR650SE is largely unchanged since 1996; years matter for a few parts).
-pattern: '(?<![\d.])((?:19|20)\d\d)(?![\d.])'
-context: '\b(dr|dr650|dr650se|model|my|bought|year|owned|bike)\b'
-window: 25
-query_context_required: false

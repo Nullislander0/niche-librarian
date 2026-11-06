@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import statistics
 import re
 import time
 import urllib.request
@@ -112,7 +113,8 @@ def run(pack: Pack, store, sources: list[str] | None = None, limit: int | None =
     method = getattr(classifier, "method", "keywords")
     sql = ("SELECT d.doc_id, d.title, d.content_md, d.content_hash FROM documents d "
            "LEFT JOIN signal_labels l ON l.doc_id = d.doc_id "
-           "WHERE (l.doc_id IS NULL OR l.content_hash != d.content_hash)")
+           "WHERE (l.doc_id IS NULL OR l.content_hash != d.content_hash) "
+           "AND d.source_type != 'data'")   # official data carries numbers (extra.metrics) instead
     args: list = []
     if sources:
         sql += f" AND d.source IN ({','.join('?' * len(sources))})"
@@ -149,10 +151,12 @@ def _period(ts: int | None, by: str) -> str:
 
 def aggregate(pack: Pack, store, by: str = "week", periods: int = 8, term: str | None = None,
               source: str | None = None) -> dict:
-    """{"periods": [...], "rows": [{term, category, counts: {period: n}, total, weighted}]}."""
+    """{"periods": [...], "rows": [{term, category, counts: {period: n}, total, posters, weighted}],
+    "measures": [...], "switches": [...]}. `posters` counts distinct authors (pseudonyms in packs
+    with privacy.authors: pseudonymize), so one prolific poster can't pass for a trend."""
     store.db.execute(SCHEMA)
     categories = _categories(pack)
-    sql = ("SELECT l.terms, l.categories, COALESCE(d.post_date, d.first_seen) FROM signal_labels l "
+    sql = ("SELECT l.terms, l.categories, COALESCE(d.post_date, d.first_seen), d.author FROM signal_labels l "
            "JOIN documents d ON d.doc_id = l.doc_id WHERE l.terms != '[]'")
     args: list = []
     if source:
@@ -160,37 +164,97 @@ def aggregate(pack: Pack, store, by: str = "week", periods: int = 8, term: str |
         args.append(source)
     counts: dict[tuple, dict] = defaultdict(lambda: defaultdict(int))
     mentions: dict[str, dict] = defaultdict(lambda: defaultdict(int))
-    for terms_j, cats_j, ts in store.db.execute(sql, args):
+    posters: dict[tuple, set] = defaultdict(set)
+    for terms_j, cats_j, ts, author in store.db.execute(sql, args):
         p = _period(ts, by)
         for t in json.loads(terms_j):
             if term and t.lower() != term.lower():
                 continue
             mentions[t][p] += 1
+            if author:
+                posters[(t, None)].add(author)
             for c in json.loads(cats_j):
                 counts[(t, c)][p] += 1
-    all_periods = sorted({p for m in mentions.values() for p in m if p != "undated"})[-periods:]
+                if author:
+                    posters[(t, c)].add(author)
+    measures: dict[tuple, dict] = defaultdict(lambda: defaultdict(list))
+    msql = ("SELECT json_extract(extra, '$.term'), json_extract(extra, '$.metrics'), post_date FROM documents "
+            "WHERE json_extract(extra, '$.metrics') IS NOT NULL" + (" AND source = ?" if source else ""))
+    for t, metrics_j, ts in store.db.execute(msql, [source] if source else []):
+        if not t or (term and t.lower() != term.lower()):
+            continue
+        for k, v in json.loads(metrics_j).items():
+            if isinstance(v, (int, float)):
+                measures[(t, k)][_period(ts, by)].append(v)
+    all_periods = sorted({p for m in mentions.values() for p in m if p != "undated"}
+                         | {p for m in measures.values() for p in m if p != "undated"})[-periods:]
     rows = []
     for t, per in sorted(mentions.items(), key=lambda kv: -sum(kv[1].values())):
         rows.append({"term": t, "category": "(any mention)", "counts": {p: per.get(p, 0) for p in all_periods},
-                     "total": sum(per.values()), "weighted": float(sum(per.values()))})
+                     "total": sum(per.values()), "posters": len(posters[(t, None)]),
+                     "weighted": float(sum(per.values()))})
         for (t2, c), cper in sorted(counts.items(), key=lambda kv: -sum(kv[1].values())):
             if t2 != t:
                 continue
             w = float(categories.get(c, {}).get("weight", 1.0))
             total = sum(cper.values())
             rows.append({"term": t, "category": c, "counts": {p: cper.get(p, 0) for p in all_periods},
-                         "total": total, "weighted": round(total * w, 1)})
-    return {"by": by, "periods": all_periods, "rows": rows}
+                         "total": total, "posters": len(posters[(t, c)]), "weighted": round(total * w, 1)})
+    mrows = []
+    for (t, k), per in sorted(measures.items()):
+        level = any(x in k for x in ("price", "pct"))     # levels: median; events: sum
+        f = (lambda vs: round(statistics.median(vs), 4)) if level else sum
+        mrows.append({"term": t, "measure": k, "counts": {p: f(per[p]) if p in per else None for p in all_periods},
+                      "how": "median" if level else "sum"})
+    return {"by": by, "periods": all_periods, "rows": rows, "measures": mrows,
+            "switches": switches(store, source=source, term=term)}
+
+
+def switches(store, source: str | None = None, term: str | None = None, top: int = 15) -> list[dict]:
+    """Posters who first mentioned one term and later another: switching or adding a drug.
+    Counted per poster (pseudonym), from their first mention of each term."""
+    sql = ("SELECT d.author, l.terms, COALESCE(d.post_date, d.first_seen) FROM signal_labels l "
+           "JOIN documents d ON d.doc_id = l.doc_id WHERE l.terms != '[]' AND d.author IS NOT NULL"
+           + (" AND d.source = ?" if source else ""))
+    first: dict[str, dict[str, int]] = defaultdict(dict)
+    for author, terms_j, ts in store.db.execute(sql, [source] if source else []):
+        for t in json.loads(terms_j):
+            if ts is not None and (t not in first[author] or ts < first[author][t]):
+                first[author][t] = ts
+    pairs: dict[tuple, int] = defaultdict(int)
+    for seen in first.values():
+        ordered = sorted(seen.items(), key=lambda kv: kv[1])
+        for i, (a, ta) in enumerate(ordered):
+            for b, tb in ordered[i + 1:]:
+                if tb > ta:
+                    pairs[(a, b)] += 1
+    out = [{"from": a, "to": b, "posters": n} for (a, b), n in pairs.items()
+           if not term or term.lower() in (a.lower(), b.lower())]
+    return sorted(out, key=lambda r: -r["posters"])[:top]
 
 
 def format_report(agg: dict) -> str:
-    if not agg["rows"]:
+    if not agg["rows"] and not agg.get("measures"):
         return "No signals yet: run `librarian signals run` after crawling."
     ps = agg["periods"]
-    head = "| term | category | " + " | ".join(ps) + " | total | weighted |"
+    head = "| term | category | " + " | ".join(ps) + " | total | posters | weighted |"
     lines = [f"Documents per {agg['by']} (labels only; weighted = total x category weight)", "",
-             head, "|" + "---|" * (len(ps) + 4)]
+             head, "|" + "---|" * (len(ps) + 5)]
     for r in agg["rows"]:
         lines.append(f"| {r['term'] if r['category'] == '(any mention)' else ''} | {r['category']} | "
-                     + " | ".join(str(r["counts"][p] or "") for p in ps) + f" | {r['total']} | {r['weighted']} |")
+                     + " | ".join(str(r["counts"][p] or "") for p in ps)
+                     + f" | {r['total']} | {r.get('posters', '')} | {r['weighted']} |")
+    if agg.get("switches"):
+        lines += ["", "Posters who mentioned one term and later another (switching or adding)", "",
+                  "| first | later | posters |", "|---|---|---|"]
+        lines += [f"| {r['from']} | {r['to']} | {r['posters']} |" for r in agg["switches"]]
+    if agg.get("measures"):
+        lines += ["", f"Measures from official data per {agg['by']} (FDA, CMS NADAC)", "",
+                  "| term | measure | " + " | ".join(ps) + " | per period |", "|" + "---|" * (len(ps) + 3)]
+        last = None
+        for r in agg["measures"]:
+            lines.append(f"| {r['term'] if r['term'] != last else ''} | {r['measure']} | "
+                         + " | ".join("" if r["counts"][p] is None else str(r["counts"][p]) for p in ps)
+                         + f" | {r['how']} |")
+            last = r["term"]
     return "\n".join(lines)

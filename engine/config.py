@@ -50,11 +50,17 @@ EMBEDDING = {
 }
 
 CRAWLER = {
-    "user_agent": "niche-librarian/0.1 (personal research index; respects robots.txt)",
+    "user_agent": "niche-librarian/0.1 (personal research index; polite crawler)",
     "contact": os.environ.get("LIBRARIAN_CONTACT", ""),  # optional URL or email appended to the UA
     "min_interval_seconds": 1.0,
     "cache_ttl_seconds": 86400,
     "timeout_seconds": 30,
+    # robots.txt: Crawl-delay is always honoured (pacing). Disallow rules are not legally
+    # binding in the US, so they're enforced only for EU/EEA-hosted sites (country-code
+    # domains), where a machine-readable opt-out has legal force (EU Copyright Directive,
+    # Art. 4). A pack can set `crawler: {respect_robots: true}` to enforce them everywhere.
+    "respect_robots": False,
+    "robots_eu": True,
 }
 
 
@@ -85,6 +91,11 @@ class Pack:
     agent: dict = field(default_factory=dict)  # hints for MCP tool descriptions (example queries)
     web: dict = field(default_factory=dict)  # web_search site shortcuts and hosts never to fetch
     signals: dict = field(default_factory=dict)  # terms and categories for `librarian signals`
+    privacy: dict = field(default_factory=dict)  # {authors: keep|pseudonymize|drop} (engine/privacy.py)
+
+    @property
+    def author_mode(self) -> str:
+        return str((self.privacy or {}).get("authors", "keep"))
 
     @property
     def db_path(self) -> Path:
@@ -157,5 +168,6 @@ def load_pack(pack_id: str) -> Pack:
         agent=meta.get("agent") or {},
         web=web,
         signals=meta.get("signals") or {},
+        privacy=meta.get("privacy") or {},
         crawler={**CRAWLER, **(meta.get("crawler") or {})},
     )

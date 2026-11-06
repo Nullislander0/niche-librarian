@@ -5,3 +5,7 @@ __pycache__/
 # Crawled content and caches stay local: share the recipe, not the data.
 data/
 *.db
+
+# Private work, kept on this machine only
+packs/harrow/
+docs/*Digest*.md

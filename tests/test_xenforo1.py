@@ -1,5 +1,5 @@
 """XenForo 1 parser against a synthetic forum."""
-from engine.config import load_pack
+from engine.config import SourceConfig
 from engine.parsers.base import CrawlContext
 from engine.parsers.xenforo1 import Parser, page_count, parse_posts
 
@@ -63,12 +63,10 @@ class Site:
 
 
 def crawl(site, state, per_run=2):
-    pack = load_pack("dr650")
-    src = pack.source("advrider")
-    src.options = {"base_url": "https://forum.example/f/", "post_count_labels": ["Oddometer"],
+    src = SourceConfig(id="advrider", parser="xenforo1", source_type="forum", options={"base_url": "https://forum.example/f/", "post_count_labels": ["Oddometer"],
                    "mega_threads": [{"thread": "threads/mega.1/", "pages_per_run": per_run}],
                    "tag_pages": ["tags/dr650/"],
-                   "forum_scan": [{"forum": "forums/thumpers.15/", "title": "(?i)dr\\s?650", "max_pages": 3}]}
+                   "forum_scan": [{"forum": "forums/thumpers.15/", "title": "(?i)dr\\s?650", "max_pages": 3}]})
     return list(Parser(CrawlContext(source=src, fetcher=site, state=state)).crawl())
 
 

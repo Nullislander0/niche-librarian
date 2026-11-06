@@ -1,7 +1,7 @@
 """XenForo 1.x forums (server-rendered HTML; no API). One Document per post.
 
-For forums without an API. Respect the site's robots.txt (the fetcher enforces it) and
-keep the request interval generous. Discovery uses only public listing pages:
+For forums without an API. The fetcher paces requests; keep the interval generous. Discovery
+uses only public listing pages:
 
 Options (sources.yaml):
   base_url: https://forum.example.com/f/

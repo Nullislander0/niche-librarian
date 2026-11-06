@@ -144,6 +144,8 @@ def test_fetcher_retries_timeouts(tmp_path, monkeypatch):
         def read(self): return b'{"ok": 1}'
 
     def flaky(req, timeout=0):
+        if req.full_url.endswith("/robots.txt"):
+            raise urllib.error.HTTPError(req.full_url, 404, "none", {}, None)
         calls.append(1)
         if len(calls) == 1:
             raise TimeoutError("The read operation timed out")
@@ -153,3 +155,34 @@ def test_fetcher_retries_timeouts(tmp_path, monkeypatch):
     monkeypatch.setattr(fm.time, "sleep", lambda s: None)
     f = fm.Fetcher("ua", tmp_path, min_interval=0, respect_robots=False)
     assert f.get_json("https://x.example/a") == {"ok": 1} and len(calls) == 2
+
+
+def test_ignoring_robots_still_honours_crawl_delay(tmp_path, monkeypatch):
+    import urllib.request
+    from engine.crawl import fetcher as fm
+
+    class Resp:
+        def __init__(self, body): self.body, self.headers = body, {"Content-Type": "text/plain"}
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def read(self): return self.body
+
+    robots = b"User-agent: *\nCrawl-delay: 7\nDisallow: /\n"
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda req, timeout=0: Resp(robots if req.full_url.endswith("robots.txt") else b"page"))
+    obey = fm.Fetcher("ua", tmp_path / "a", min_interval=0, respect_robots=True)
+    try:
+        obey.get_text("https://x.example/p")
+        assert False, "should have been refused"
+    except fm.BlockedError as e:
+        assert "robots.txt disallows" in str(e)
+    ignore = fm.Fetcher("ua", tmp_path / "b", min_interval=0)          # the default
+    assert ignore.get_text("https://x.example/p") == "page"
+    assert ignore._host_interval["x.example"] == 7.0          # pacing kept
+    try:                                                      # EU/EEA hosts: Disallow enforced
+        ignore.get_text("https://forum.example.de/p")
+        assert False, "should have been refused"
+    except fm.BlockedError as e:
+        assert "EU/EEA host" in str(e)
+    assert fm.Fetcher("ua", tmp_path / "c", min_interval=0, robots_eu=False).get_text("https://forum.example.de/p") == "page"
+    assert fm.is_eu_host("www.example.co.uk") is False and fm.is_eu_host("example.fr:443")

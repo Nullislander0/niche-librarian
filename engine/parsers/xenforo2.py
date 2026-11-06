@@ -14,8 +14,8 @@ Options (sources.yaml):
 
 Each thread's first post becomes its root ("question"); the rest are replies. Join date,
 message count and likes come from the post's user panel and microdata. A "[SOLVED]"-style
-title label is kept as extra.solved and stripped from the title. Respect robots.txt (the
-fetcher enforces it) and keep the request interval generous.
+title label is kept as extra.solved and stripped from the title. The fetcher paces requests;
+keep the interval generous.
 """
 from __future__ import annotations
 

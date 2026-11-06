@@ -61,7 +61,9 @@ def test_classify_and_read_url():
 
 
 def test_blocked_hosts_from_pack_config():
-    pack = load_pack("dr650")
+    import copy
+    pack = copy.deepcopy(load_pack("homelab"))
+    pack.web = {"blocked_hosts": ["drriders.com"]}
     assert webpages.classify(pack, "https://www.drriders.com/forum/thread/1") == ("blocked", "drriders.com")
     assert "blocked" in webpages.read_url(pack, "https://drriders.com/x", FakeFetcher({}))
 

@@ -20,7 +20,6 @@ run the crawl yourself, and the data stays on your machine in `data/`, which git
 |---|---|---|---|
 | **`homelab`** | Running your own home server: Proxmox VE, TrueNAS and ZFS, Docker and Compose, and the Linux underneath | Proxmox docs and wiki, TrueNAS docs and forums, Docker docs and forums, Arch Wiki, Level1Techs, LinuxServer.io | **Yes:** broad audience, all public APIs, no keys needed |
 | `esri_enterprise` | Esri ArcGIS Enterprise administration: installs, upgrades, federation, Data Store, Web Adaptor | GIS Stack Exchange, Esri Community, Esri docs, knowledge base and bug database | For GIS administrators |
-| `dr650` | Suzuki DR650 builds, mods, maintenance and long-term ownership | ADVrider (the DR650 thread, `dr650`-tagged and title-matched threads) | An example of a forum-only pack |
 
 Each pack is independent: its own database, its own MCP server, its own ranking. Writing a
 pack for your own niche is the point. See [Writing your own pack](#writing-your-own-pack).
@@ -205,7 +204,7 @@ crawlers, one-off pages) the agent gets three more MCP tools:
 | Tool | What it does | Writes anything? |
 |---|---|---|
 | `web_search` | live Brave search (`news=true` for the news index), results marked `[indexed]` / `[host crawled by source …]` / `[blocked host]`. Only offered when `BRAVE_API_KEY` is set | no |
-| `read_url` | fetches one page politely (robots.txt, throttle, challenge detection) and returns markdown for this answer | no |
+| `read_url` | fetches one page politely (paced, block and challenge detection) and returns markdown for this answer | no |
 | `index_url` | **proposes** a page for the index | a queue entry only |
 
 Nothing an agent finds goes into your index until you approve it:
@@ -237,6 +236,54 @@ so your watches always have room (`LIBRARIAN_WEB_AGENT_SHARE=0.75` to change it)
 per server session (`LIBRARIAN_WEB_SESSION_CAP`). Keys can live in
 `~/.config/niche-librarian/env` (`export NAME=value` lines): the engine reads that file
 itself, so MCP clients that don't start from your shell still find them.
+
+## Trend signals
+
+For "how much is X being talked about, and about what?" rather than "what's the answer?",
+a pack can list `signals:` in its `sources.yaml`: terms to track and categories to sort
+mentions into, each with a weight.
+
+```yaml
+signals:
+  terms:
+    - {name: proxmox-backup, match: 'proxmox backup server|\bpbs\b'}
+  categories:
+    data_loss: {weight: 1.0, description: "lost or corrupted backups", keywords: 'corrupt|lost data'}
+    pricing:   {weight: 0.5, description: "subscription and licensing cost", keywords: 'subscription|price'}
+```
+
+```bash
+librarian signals run                   # label new documents (local LLM via Ollama, or keywords)
+librarian signals report --by month     # counts per term, category and period
+```
+
+Labeling runs on your machine (`qwen3:4b` by default; `--keywords-only` without Ollama).
+Only labels are stored: no text and no authors. Agents get the same table from the MCP
+`signals` tool.
+
+Sources whose documents carry numbers (`source_type: data`, with `extra.metrics`) appear as
+**measures** beside the counts instead of being labeled. Two parsers produce them, both for
+public-domain US government data:
+
+- `openfda`: FDA adverse event reports per drug per month, drug shortages and recalls
+- `nadac`: CMS NADAC, the weekly price pharmacies pay per unit, and each week's price changes
+- `medicaid_sdud`: Medicaid outpatient prescriptions per drug per quarter (CMS State Drug
+  Utilization Data), nationally or by state
+- `partd_formulary`: Medicare Part D coverage per quarterly release: share of plans covering a
+  drug and how many require prior authorization or step therapy. CMS ships this as a 2.5 GB
+  ZIP; the parser reads only the two files it needs (~9 MB) with HTTP range requests
+
+### Packs about people: pseudonymized authors
+
+A pack can set `privacy: {authors: pseudonymize}`. Each author is then stored as a stable
+pseudonym (`P-7f3a91`, a keyed hash: the same person every week, the handle never stored),
+handles are scrubbed from quotes, @mentions, greetings and attributions in the text, emails and
+phone numbers are removed, and profile numbers are coarsened. The `signals` report then counts
+**posters** as well as posts, and shows switch flows: posters who mentioned one term and later
+another. `librarian privacy apply` converts documents already in the index; `librarian rebuild`
+re-scrubs from the cache with every handle known. The key is created in `data/secrets/` (back
+it up: a new key means new pseudonyms). Pseudonymized isn't anonymous: post text and URLs can
+lead back to the original post, and the local page cache keeps the raw pages for rebuilds.
 
 ## Connect an agent (MCP)
 
@@ -300,7 +347,7 @@ is [docs/SOURCING.md](docs/SOURCING.md).
 2. **List where practitioners actually go:** vendor docs, the vendor's community, the
    independent forum everyone recommends, the relevant Stack Exchange tags, a wiki. Ask
    someone who does the work.
-3. **Check each site's access** before writing any config: robots.txt, one plain request,
+3. **Check each site's access** before writing any config: one plain request (real content or a block?),
    whether there's an API or sitemap, and its rough size. See
    [the checklist](docs/SOURCING.md#2-checking-a-site-before-adding-it). Drop anything that
    blocks or challenges the crawler.
@@ -332,7 +379,7 @@ is [docs/SOURCING.md](docs/SOURCING.md).
 | `sitemap_html` | Docs sites: pages from sitemaps, explicit URLs or an index page, with a content selector |
 | `stackexchange` | Any Stack Exchange site, through the official API |
 | `vanilla` | Vanilla Forums communities, through API v2 |
-| `xenforo1` | XenForo 1.x forums (HTML; respects robots.txt) |
+| `xenforo1` | XenForo 1.x forums (HTML) |
 | `xenforo2` | XenForo 2.x forums (HTML): forum listings by latest activity, thread pages, staff and user-panel fields |
 
 **Record how you checked access.** Every source gets an `access:` block. A source whose
@@ -342,8 +389,8 @@ verdict is `blocked` or `needs-key` is never crawled:
 access: {checked: 2026-11-05, robots: allowed, method: Discourse JSON API, auth: none, verdict: ok}
 ```
 
-Before adding a site, check its robots.txt and whether a plain request gets real content or
-a bot challenge. Prefer an official API or export. If a site challenges or blocks the
+Before adding a site, check whether a plain request gets real content or a bot challenge,
+and whether you've accepted any terms that cover it. Prefer an official API or export. If a site challenges or blocks the
 crawler, mark it blocked and move on; never work around it.
 
 **Test your pack's search quality.** `librarian eval-build` picks threads that have accepted
@@ -373,7 +420,7 @@ class Parser:
         while True:
             self.ctx.check_budget()               # respects --max-requests
             data = self.ctx.fetcher.get_json("https://api.example.org/posts",
-                                             {"page": st["page"]})   # robots/throttle/cache/UA
+                                             {"page": st["page"]})   # pacing/cache/UA/blocks
             for post in data["posts"]:
                 yield Document(
                     doc_id=f"{self.ctx.source.id}:{post['id']}",     # stable forever
@@ -389,7 +436,7 @@ class Parser:
 ```
 
 Rules for parsers:
-- Make every request through `ctx.fetcher`, which handles robots.txt, throttling, caching,
+- Make every request through `ctx.fetcher`, which handles pacing, caching,
   block detection and the user agent.
 - `doc_id` must be stable. Chunk IDs (`<doc_id>#c<n>`) are what agents cite.
 - Return content as markdown, plus whatever metadata the site really provides (votes,
@@ -403,9 +450,10 @@ Rules for parsers:
 
 ## Rules this project follows
 
-- **Sanctioned access only.** It obeys the robots.txt rules that address it or all crawlers
-  (`*`), including any Crawl-delay, paces requests by default, and identifies itself with an
-  honest user agent.
+- **Polite, honest access.** It paces requests (including any robots.txt Crawl-delay) and
+  identifies itself with an honest user agent. It honours the agreements you actually accept,
+  such as API terms; robots.txt `Disallow` rules aren't legally binding in the US and are
+  enforced only for EU/EEA sites (configurable; see [docs/SOURCING.md](docs/SOURCING.md)).
 - **It never works around a block:** no bypassing bot challenges, CAPTCHAs or login walls.
   A blocked source is reported and skipped.
 - **Recipe, not data.** Crawled content is never committed or redistributed.
@@ -419,7 +467,7 @@ notes are in [docs/SOURCING.md](docs/SOURCING.md).
 
 ```
 engine/
-  crawl/fetcher.py      polite HTTP: robots.txt, pacing, cache, retries, block detection
+  crawl/fetcher.py      polite HTTP: pacing, cache, retries, block detection
   parsers/              base.py, stackexchange (worked example), vanilla, discourse, mediawiki,
                         sitemap_html, xenforo1, html_md (HTML -> markdown)
   index/                store (FTS5 + sqlite-vec), chunking, Ollama embeddings
@@ -433,7 +481,7 @@ engine/
   mcp_server/server.py  MCP tools
   cli.py                the `librarian` command
 packs/
-  homelab/  esri_enterprise/  dr650/
+  homelab/  esri_enterprise/
 tests/
 ```
 

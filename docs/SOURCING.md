@@ -9,8 +9,7 @@ detection). The judgment calls are yours, and this guide is how to make them con
 
 **Allowed:**
 - Official APIs and data exports. Always prefer these.
-- Sitemaps the site publishes in its robots.txt or at `/sitemap.xml`.
-- Public HTML pages that robots.txt allows for our crawler or for `*`.
+- Sitemaps, and public pages an anonymous visitor can read.
 
 **Never:**
 - Bypassing a bot challenge: no headless browser to pass Cloudflare, no solving CAPTCHAs.
@@ -19,12 +18,19 @@ detection). The judgment calls are yours, and this guide is how to make them con
 - Committing crawled content, raw responses or derived data to the repo.
 - Putting API keys, tokens or credentials anywhere but your shell environment.
 
-**robots.txt policy, as implemented:** the crawler obeys rules addressed to its own user
-agent (`niche-librarian`) or to `*`, including any `Crawl-delay`. Rules naming *other*
-crawlers (ClaudeBot, GPTBot, CCBot and so on) aren't applied automatically. Many sites now
-list AI crawlers by name to opt out of AI training and bulk scraping. If you'd rather treat
-those opt-outs as applying to you as well, that's a reasonable, stricter choice. Record it in
-the source's `access:` notes and leave the source disabled.
+**What binds a crawl.** Agreements you actually accepted do: an API key's terms, an
+account's signup terms. A "by using this site you agree" link in a site's footer generally
+does not under US law (Nguyen v. Barnes & Noble, 2014), and robots.txt is a request, not a
+contract or a statute. Note one exception courts have recognised: continuing to use a site
+after you know its terms can be treated as accepting them (Register.com v. Verio, 2004), so
+record in the source's `access:` notes what you read and decided.
+
+**robots.txt, as implemented:** `Crawl-delay` is always honoured, since pacing is about
+server load. `Disallow` rules are not enforced, except on EU/EEA country-code domains,
+where a machine-readable opt-out has legal force (EU Copyright Directive, Article 4). A
+pack can set `crawler: {respect_robots: true}` to enforce them everywhere, or
+`robots_eu: false` to turn the EU rule off. `librarian scout` still reports what each
+site's robots.txt says.
 
 **A block means stop.** HTTP 401/403/407, a challenge page ("Just a moment…", "Attention
 Required", Cloudflare `cf_chl` markers) or a login wall ends that source's crawl. The fetcher
@@ -36,8 +42,9 @@ entry or an export.
 
 Do this for every new site, by hand or with a few lines of Python, about five requests:
 
-1. **robots.txt:** what applies to our agent and to `*`? Is there a `Crawl-delay`? A
-   `Sitemap:` line? Which AI crawlers are named, if any (for your notes)?
+1. **robots.txt, for information:** is there a `Crawl-delay` (honoured) or a `Sitemap:` line
+   (useful)? Is the site on an EU/EEA domain (Disallow rules enforced there)? Note what it
+   disallows and which AI crawlers it names, for the record.
 2. **One plain request** for a real content page: does it return the content, or a challenge
    or error page? Check the page *title* and status code. A page that merely loads a CAPTCHA
    *script* (reCAPTCHA for a contact form) isn't a block.

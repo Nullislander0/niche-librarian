@@ -4,7 +4,7 @@ This is the worked example to copy when adding an API-backed source. The
 shape every parser follows:
 
   1. Read options from sources.yaml via ctx.options.
-  2. Make every request through ctx.fetcher (robots.txt, throttle, cache, UA).
+  2. Make every request through ctx.fetcher (throttle, cache, UA).
   3. Yield Document objects. The engine does version tagging, chunking,
      indexing and embedding; parsers only fetch and normalise.
   4. Keep resume state in ctx.state so runs are incremental, and call

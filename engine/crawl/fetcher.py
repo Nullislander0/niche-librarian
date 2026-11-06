@@ -1,4 +1,4 @@
-"""Polite HTTP fetcher: robots.txt, per-host throttle, identifying user agent, disk cache.
+"""Polite HTTP fetcher: per-host throttle (incl. robots.txt Crawl-delay), identifying user agent, disk cache.
 
 Every network request a parser makes goes through here. If a site refuses us
 (robots.txt, 401/403, CAPTCHA page) we raise BlockedError and the crawl for that
@@ -53,7 +53,8 @@ class Fetcher:
         cache_ttl: int = 86400,
         timeout: int = 30,
         max_retries: int = 3,
-        respect_robots: bool = True,
+        respect_robots: bool = False,
+        robots_eu: bool = True,
         offline: bool = False,
     ):
         self.user_agent = user_agent
@@ -63,6 +64,7 @@ class Fetcher:
         self.timeout = timeout
         self.max_retries = max_retries
         self.respect_robots = respect_robots
+        self.robots_eu = robots_eu
         self.offline = offline  # replay from cache only; never touch the network
         self.network_requests = 0
         self._next_allowed: dict[str, float] = {}
@@ -146,8 +148,9 @@ class Fetcher:
         raise FetchError(f"gave up on {url}")
 
     def _check_robots(self, url: str) -> None:
-        if not self.respect_robots:
-            return
+        """Read the host's robots.txt once. Its Crawl-delay is always honoured (pacing is about
+        load). Its Disallow rules are enforced for EU/EEA hosts, or everywhere with
+        respect_robots (see CRAWLER in engine/config.py)."""
         parts = urllib.parse.urlsplit(url)
         host = parts.netloc
         rp = self._robots.get(host)
@@ -159,7 +162,7 @@ class Fetcher:
             except BlockedError:
                 rp.disallow_all = True
             except FetchError as e:
-                if e.status and 400 <= e.status < 500:
+                if (e.status and 400 <= e.status < 500) or not self._enforce(host):
                     rp.allow_all = True  # no robots.txt: everything allowed
                 else:
                     raise BlockedError(f"could not read {robots_url}: {e}")
@@ -167,8 +170,12 @@ class Fetcher:
             if delay:
                 self._host_interval[host] = max(self.min_interval, float(delay))
             self._robots[host] = rp
-        if not rp.can_fetch(self.user_agent, url):
-            raise BlockedError(f"robots.txt disallows {url}")
+        if self._enforce(host) and not rp.can_fetch(self.user_agent, url):
+            raise BlockedError(f"robots.txt disallows {url} (EU/EEA host)" if not self.respect_robots
+                               else f"robots.txt disallows {url}")
+
+    def _enforce(self, host: str) -> bool:
+        return self.respect_robots or (self.robots_eu and is_eu_host(host))
 
     def _cache_path(self, url: str) -> Path:
         h = hashlib.sha256(url.encode()).hexdigest()
@@ -188,6 +195,15 @@ class Fetcher:
         path = self._cache_path(url)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"url": url, "fetched_at": time.time(), "body": body}), encoding="utf-8")
+
+
+EU_TLDS = {"at", "be", "bg", "hr", "cy", "cz", "dk", "ee", "fi", "fr", "de", "gr", "hu", "ie", "it", "lv",
+           "lt", "lu", "mt", "nl", "pl", "pt", "ro", "sk", "si", "es", "se", "eu", "is", "li", "no"}
+
+
+def is_eu_host(host: str) -> bool:
+    """EU/EEA country-code domains. A heuristic: EU sites on .com aren't detected."""
+    return host.split(":")[0].rstrip(".").rsplit(".", 1)[-1].lower() in EU_TLDS
 
 
 def to_ascii_url(url: str) -> str:

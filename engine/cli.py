@@ -122,6 +122,9 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--periods", type=int, default=8)
     sp.add_argument("--json", action="store_true")
 
+    pv = sub.add_parser("privacy", parents=[common], help="apply the pack's privacy setting to documents already indexed")
+    pv.add_argument("action", choices=["apply"])
+
     wr2 = sub.add_parser("web-results", parents=[common], help="stored web search results (storage-rights plans)")
     wr2.add_argument("action", choices=["count", "purge"])
 
@@ -209,6 +212,13 @@ def main(argv: list[str] | None = None) -> None:
             else:
                 agg = signals.aggregate(pack, store, a.by, a.periods, a.term, a.source)
                 print(json.dumps(agg, indent=2) if a.json else signals.format_report(agg))
+        elif a.cmd == "privacy":
+            from engine.indexer import embed_missing, open_store
+            from engine.privacy import apply_to_store
+            store = open_store(pack)
+            res = apply_to_store(pack, store)
+            res["embedded_chunks"] = embed_missing(store)
+            print(json.dumps(res, indent=2))
         elif a.cmd == "web-results":
             from engine import webresults
             from engine.indexer import open_store

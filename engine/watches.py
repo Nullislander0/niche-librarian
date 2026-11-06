@@ -15,8 +15,8 @@ never written to the index or to report files. New-vs-seen is tracked by URL fin
 
 Release watches (`watch add-releases`) are web watches on Brave's news index, one per product
 listed under `web.releases` in sources.yaml: new versions, patches, security advisories and
-end-of-support notices. A result only counts if the product's name (or its `match` regex)
-appears in its title or snippet.
+end-of-support notices (override the words with `web.release_terms`, e.g. for drugs). A
+result only counts if the product's name (or its `match` regex) appears in its title or snippet.
 """
 from __future__ import annotations
 
@@ -75,7 +75,7 @@ def add_releases(pack: Pack, freshness: str = "pw") -> dict[str, dict]:
     for r in pack.web.get("releases") or []:
         r = {"name": r} if isinstance(r, str) else r
         name = "release-" + re.sub(r"[^a-z0-9]+", "-", r["name"].lower()).strip("-")
-        query = r.get("query") or f'"{r["name"]}" {RELEASE_TERMS}'
+        query = r.get("query") or f'"{r["name"]}" {pack.web.get("release_terms") or RELEASE_TERMS}'
         require = r.get("match") or re.escape(r["name"])
         seen = (existing.get(name) or {}).get("seen") or []
         added[name] = add(pack, name, query, web=True, backend="brave-news", freshness=freshness,

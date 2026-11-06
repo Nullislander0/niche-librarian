@@ -27,6 +27,8 @@ def make_fetcher(pack: Pack, offline: bool = False) -> Fetcher:
         min_interval=float(c["min_interval_seconds"]),
         cache_ttl=int(c["cache_ttl_seconds"]),
         timeout=int(c["timeout_seconds"]),
+        respect_robots=bool(c.get("respect_robots", False)),
+        robots_eu=bool(c.get("robots_eu", True)),
         offline=offline,
     )
 
@@ -56,6 +58,10 @@ def crawl(pack: Pack, source_ids: list[str] | None = None, max_requests: int | N
     store = open_store(pack)
     fetcher = make_fetcher(pack, offline=offline)
     tagger = VersionTagger(pack.versions)
+    privacy = None
+    if pack.author_mode != "keep":
+        from engine.privacy import Pseudonymizer
+        privacy = Pseudonymizer()
     report: dict = {}
     try:
         for src in pack.sources:
@@ -76,6 +82,15 @@ def crawl(pack: Pack, source_ids: list[str] | None = None, max_requests: int | N
             ctx = CrawlContext(source=src, fetcher=fetcher, state=state,
                                max_requests=max_requests, lookup=store.get_document,
                                log=logging.getLogger(f"crawl.{src.id}"))
+            if privacy and offline:   # replay is cheap: learn every handle first, then scrub with all of them
+                try:
+                    pre = _MemoryState(dict(state))
+                    for d in parser_cls(CrawlContext(source=src, fetcher=fetcher, state=pre,
+                                                     log=logging.getLogger(f"crawl.{src.id}"))).crawl():
+                        if d.author:
+                            privacy.learn(d.source, d.author)
+                except Exception:  # a partial pre-pass still helps
+                    pass
             seen = changed = roots = 0
             status = "complete"
             try:
@@ -86,6 +101,8 @@ def crawl(pack: Pack, source_ids: list[str] | None = None, max_requests: int | N
                             status = f"sampled: first {sample} threads/pages"
                             break
                     seen += 1
+                    if privacy:
+                        privacy.apply(doc, pack.author_mode)
                     changed += index_document(store, tagger, doc)
                     if seen % 200 == 0:
                         log.info("%s: %d documents (%d new/changed)", src.id, seen, changed)
