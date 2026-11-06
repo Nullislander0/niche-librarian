@@ -215,7 +215,7 @@ class Fetcher:
         return self.respect_robots or (self.robots_eu and is_eu_host(host))
 
     def _cache_path(self, url: str) -> Path:
-        h = hashlib.sha256(url.encode()).hexdigest()
+        h = hashlib.sha256(cache_key(url).encode()).hexdigest()
         return self.cache_dir / h[:2] / f"{h}.json"
 
     def _cache_read(self, url: str, ttl: int) -> str | None:
@@ -231,7 +231,23 @@ class Fetcher:
     def _cache_write(self, url: str, body: str) -> None:
         path = self._cache_path(url)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"url": url, "fetched_at": time.time(), "body": body}), encoding="utf-8")
+        path.write_text(json.dumps({"url": cache_key(url), "fetched_at": time.time(), "body": body}),
+                        encoding="utf-8")
+
+
+CREDENTIAL_PARAMS = {"key", "api_key", "apikey", "access_token", "token", "client_secret"}
+
+
+def cache_key(url: str) -> str:
+    """The URL without credential parameters: cache entries survive a key rotation, and keys
+    are never written to disk."""
+    parts = urllib.parse.urlsplit(url)
+    if not parts.query or not any(k.lower() in CREDENTIAL_PARAMS
+                                  for k, _ in urllib.parse.parse_qsl(parts.query, keep_blank_values=True)):
+        return url
+    kept = [(k, v) for k, v in urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+            if k.lower() not in CREDENTIAL_PARAMS]
+    return urllib.parse.urlunsplit(parts._replace(query=urllib.parse.urlencode(kept)))
 
 
 EU_TLDS = {"at", "be", "bg", "hr", "cy", "cz", "dk", "ee", "fi", "fr", "de", "gr", "hu", "ie", "it", "lv",

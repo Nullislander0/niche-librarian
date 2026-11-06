@@ -473,8 +473,12 @@ Rules for parsers:
   replies inherit the thread's version tags.
 - Parsers don't do version tagging, chunking or ranking. The engine handles those from
   pack config.
-- Add a synthetic fixture and test under `tests/`, written by hand, never copied from
-  crawled content.
+- Add a test under `tests/` with a hand-written fixture for the cases you care about, and a
+  structure-only fixture from real pages: after a small crawl, run
+  `python tools/make_fixture.py PACK SOURCE NAME`. It replays the parser against your cache and
+  keeps the real markup, JSON keys, numbers and dates, but replaces every word, username, host
+  and API key with stand-ins (through a mapping that's never saved, so it can't be undone).
+  `tests/test_real_fixtures.py` then checks the parser still reads that real structure.
 
 ## Rules this project follows
 

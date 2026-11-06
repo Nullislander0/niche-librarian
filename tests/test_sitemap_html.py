@@ -186,3 +186,12 @@ def test_ignoring_robots_still_honours_crawl_delay(tmp_path, monkeypatch):
         assert "EU/EEA host" in str(e)
     assert fm.Fetcher("ua", tmp_path / "c", min_interval=0, robots_eu=False).get_text("https://forum.example.de/p") == "page"
     assert fm.is_eu_host("www.example.co.uk") is False and fm.is_eu_host("example.fr:443")
+
+
+def test_cache_ignores_and_never_stores_api_keys(tmp_path):
+    from engine.crawl import fetcher as fm
+    f = fm.Fetcher("ua", tmp_path, min_interval=0)
+    f._cache_write("https://api.example.com/q?site=gis&key=OLDKEY123&page=2", "body")
+    assert f._cache_read("https://api.example.com/q?site=gis&key=NEWKEY456&page=2", 10**9) == "body"
+    assert "OLDKEY123" not in "".join(p.read_text() for p in tmp_path.rglob("*.json"))
+    assert fm.cache_key("https://x.example/a?b=1") == "https://x.example/a?b=1"      # untouched without keys

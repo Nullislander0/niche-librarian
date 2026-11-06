@@ -17,3 +17,12 @@ def test_no_reports_results_or_secrets_are_tracked():
     tracked = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split("\n")
     bad = [p for p in tracked if p and FORBIDDEN.search(p)]
     assert not bad, f"private or result files are tracked: {bad[:10]}"
+
+
+def test_fixtures_hold_no_credentials():
+    import gzip
+    for path in (ROOT / "tests" / "fixtures").rglob("*"):
+        if not path.is_file():
+            continue
+        raw = gzip.open(path, "rt").read() if path.suffix == ".gz" else path.read_text(errors="ignore")
+        assert not re.search(r'[?&"](?:key|api_key|apikey|access_token|client_secret)["=:]\s*"?[A-Za-z0-9_*()-]{12,}', raw), path
