@@ -193,7 +193,9 @@ class Parser:
                     if e.status not in (404, 410):
                         raise
                     continue
-                for href in re.findall(r'href="([^"#]+)"', body):
+                # Links, plus a <meta http-equiv="refresh"> redirect (section stubs often use one).
+                refresh = re.findall(r'(?i)http-equiv=["\']refresh["\'][^>]*content=["\']\s*\d+\s*;\s*url=([^"\'>]+)', body)
+                for href in refresh + re.findall(r'href="([^"#]+)"', body):
                     full = urllib.parse.urljoin(idx, html.unescape(href))
                     if full in found or len(found) >= self.max_pages:
                         continue
