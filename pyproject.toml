@@ -11,6 +11,9 @@ license = "MIT"
 dependencies = [
     "pyyaml>=6",
     "sqlite-vec>=0.1.6",
+    # macOS Pythons (python.org, Apple, GitHub Actions) can't load SQLite extensions; this
+    # drop-in SQLite build can, so semantic search works there too.
+    "sqlean.py>=3.45; sys_platform == 'darwin'",
     "mcp>=2.0",
     "jeepney>=0.8; sys_platform == 'linux'",  # D-Bus: keep the Linux desktop awake during long jobs
 ]

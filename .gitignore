@@ -10,3 +10,5 @@ data/
 reports/
 *Digest*.md
 *.bundle
+.coverage
+htmlcov/

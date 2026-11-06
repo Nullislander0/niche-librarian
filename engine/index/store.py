@@ -14,6 +14,27 @@ import logging
 import sqlite_vec
 
 from engine.parsers.base import Document
+
+
+def _sqlite_module():
+    """The SQLite binding to use: Python's own when it can load extensions (needed for
+    sqlite-vec), otherwise sqlean.py, a drop-in build with extension loading enabled. The
+    python.org, Apple and GitHub Actions Pythons on macOS can't load extensions; sqlean.py is
+    installed there automatically (see pyproject.toml). LIBRARIAN_SQLITE=sqlean|sqlite3 forces one."""
+    import os
+    choice = os.environ.get("LIBRARIAN_SQLITE", "").lower()
+    if choice == "sqlite3":
+        return sqlite3
+    if choice != "sqlean" and hasattr(sqlite3.connect(":memory:"), "enable_load_extension"):
+        return sqlite3
+    try:
+        import sqlean
+        return sqlean
+    except ImportError:
+        return sqlite3
+
+
+sqlite = _sqlite_module()
 from engine.versions import version_matches
 
 SCHEMA = """
@@ -120,17 +141,18 @@ def fts_query(text: str, extra_phrases: list[str] | None = None) -> str:
     return " OR ".join(terms)
 
 
-def _load_sqlite_vec(db: sqlite3.Connection) -> bool:
-    """Load sqlite-vec. Some Python builds (Apple's, python.org's and GitHub's on macOS) can't
-    load SQLite extensions; the index then runs keyword-only instead of failing."""
+def _load_sqlite_vec(db) -> bool:
+    """Load sqlite-vec. If neither Python's SQLite nor sqlean.py can load extensions, the index
+    runs keyword-only instead of failing."""
     try:
         db.enable_load_extension(True)
         sqlite_vec.load(db)
         db.enable_load_extension(False)
         return True
-    except (AttributeError, sqlite3.OperationalError) as e:
+    except (AttributeError, sqlite3.OperationalError, sqlite.OperationalError) as e:
         log.warning("sqlite-vec unavailable (%s): semantic search disabled, keyword search only. "
-                    "Use a Python built with loadable SQLite extensions (e.g. Homebrew's) to enable it.", e)
+                    "Install sqlean.py (`pip install sqlean.py`) or use a Python whose SQLite can "
+                    "load extensions.", e)
         return False
 
 
@@ -140,8 +162,8 @@ class Store:
         if str(path) != ":memory:":
             self.path.parent.mkdir(parents=True, exist_ok=True)
         # check_same_thread=False: the MCP server calls tools from worker threads (serialised by a lock).
-        self.db = sqlite3.connect(str(path), check_same_thread=False)
-        self.db.row_factory = sqlite3.Row
+        self.db = sqlite.connect(str(path), check_same_thread=False)
+        self.db.row_factory = sqlite.Row
         self.vec_ok = _load_sqlite_vec(self.db)
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
@@ -245,7 +267,7 @@ class Store:
             WHERE source = ?""", (source,))
         self.db.commit()
 
-    def chunks_missing_embeddings(self, limit: int = 256) -> list[sqlite3.Row]:
+    def chunks_missing_embeddings(self, limit: int = 256) -> list:
         return self.db.execute(
             "SELECT c.id, c.text, d.title FROM chunks c JOIN documents d USING(doc_id) "
             "WHERE c.embedded=0 ORDER BY c.id LIMIT ?", (limit,)).fetchall()

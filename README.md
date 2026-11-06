@@ -116,10 +116,12 @@ keyword-stuffing reward and no blanket freshness bias.
   they run, and the machine sleeps normally afterwards. On Linux this uses a desktop idle
   inhibit plus `systemd-inhibit`, on Windows `SetThreadExecutionState`, and on macOS
   `caffeinate`. Set `LIBRARIAN_NO_STAY_AWAKE=1` to turn this off.
-- **macOS:** semantic search needs a Python that can load SQLite extensions. Homebrew's
-  Python (`brew install python`) can; Apple's bundled Python, and likely the python.org
-  installer, can't. In that case the index runs keyword-only (full-text search plus the
-  reranker) and logs a warning.
+- **macOS:** the usual macOS Pythons (python.org's installer, Apple's, GitHub's) can't load
+  SQLite extensions, which semantic search needs. On macOS the install therefore adds
+  `sqlean.py`, a drop-in SQLite build that can, and the engine switches to it automatically:
+  nothing to configure, and any Python works. If it ever can't load either, the index runs
+  keyword-only (full-text search plus the reranker) and logs a warning. CI checks that vector
+  search loads on Linux, Windows and macOS.
 
 **Settings** come from environment variables:
 
