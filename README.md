@@ -138,6 +138,7 @@ Keep keys in your shell environment, never in the repo.
 
 ```bash
 librarian crawl [--source ID] [--sample N] [--max-requests N]   # fetch and index; resumable
+librarian check                                    # sources.yaml typos: unknown keys and options
 librarian sources                                  # sources and their access records
 librarian outline                                  # what the index covers: sources, boards, tags, versions
 librarian search "query" [--version 11.3] [--explain]
@@ -149,6 +150,11 @@ librarian eval-build / eval                        # build and run the pack's re
 
 Every raw response is kept in `data/cache/`, so `rebuild` can re-parse everything after you
 change a parser or the chunking, without touching the network.
+
+Each crawl also checks what it parsed. If most documents from a source come out empty,
+untitled, undated or authorless, or most threads share one title (a site banner instead of the
+thread's name), the crawl report lists `parse_warnings`: usually a sign the site's layout
+changed and its parser needs a look.
 
 ## Saved searches and alerts
 

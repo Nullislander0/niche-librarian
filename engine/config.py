@@ -9,6 +9,7 @@ A pack is a folder under packs/ with:
 """
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -123,6 +124,64 @@ class Pack:
         return f"{ua} +{self.crawler['contact']}" if self.crawler.get("contact") else ua
 
 
+PACK_KEYS = {"name", "description", "agent", "crawler", "web", "signals", "privacy", "sources"}
+SOURCE_KEYS = {"id", "parser", "source_type", "trust", "enabled", "options", "access"}
+SECTION_KEYS = {
+    "web": {"storage_rights", "sites", "blocked_hosts", "releases", "release_terms"},
+    "privacy": {"authors"},
+    "signals": {"terms", "categories"},
+    "agent": {"good_queries", "bad_queries"},
+}
+
+
+def check_meta(meta: dict) -> list[str]:
+    """Structural problems in a pack's sources.yaml: unknown keys (usually typos) and bad values."""
+    out = [f"unknown top-level key {k!r}" for k in meta if k not in PACK_KEYS]
+    out += [f"crawler: unknown key {k!r}" for k in (meta.get("crawler") or {}) if k not in CRAWLER]
+    for section, keys in SECTION_KEYS.items():
+        out += [f"{section}: unknown key {k!r}" for k in (meta.get(section) or {}) if k not in keys]
+    mode = (meta.get("privacy") or {}).get("authors", "keep")
+    if mode not in ("keep", "pseudonymize", "drop"):
+        out.append(f"privacy.authors must be keep, pseudonymize or drop, not {mode!r}")
+    ids = []
+    for i, s in enumerate(meta.get("sources") or []):
+        sid = s.get("id") or f"#{i + 1}"
+        ids.append(sid)
+        out += [f"source {sid}: unknown key {k!r}" for k in s if k not in SOURCE_KEYS]
+        out += [f"source {sid}: missing {k!r}" for k in ("id", "parser") if not s.get(k)]
+        if "trust" in s and not isinstance(s["trust"], (int, float)):
+            out.append(f"source {sid}: trust must be a number")
+    out += [f"duplicate source id {x!r}" for x in sorted({x for x in ids if ids.count(x) > 1})]
+    return out
+
+
+def known_options(parser_cls) -> set[str]:
+    """Option names a parser understands: those in its docstring's Options section, plus those
+    its code reads (o["x"], o.get("x"), options.get("x"))."""
+    import re
+    import sys
+    mod = sys.modules.get(parser_cls.__module__)
+    doc = (mod.__doc__ or "") if mod else ""
+    i = doc.find("Options")
+    keys = set(re.findall(r"^\s{2,}([a-z_]+):", doc[i:], re.M)) if i >= 0 else set()
+    try:
+        import inspect
+        src = inspect.getsource(mod)
+    except (TypeError, OSError):
+        src = ""
+    keys |= set(re.findall(r"""\b(?:o|options|opts|self\.options|ctx\.options|self\.ctx\.options)"""
+                           r"""(?:\.get\(|\[)\s*["']([a-z_]+)["']""", src))
+    return keys
+
+
+def check_options(source: "SourceConfig", parser_cls) -> list[str]:
+    known = known_options(parser_cls)
+    if not known:
+        return []
+    return [f"source {source.id}: option {k!r} isn't one {source.parser} understands"
+            for k in source.options if k not in known]
+
+
 def _read_yaml(path: Path) -> dict:
     if not path.exists():
         return {}
@@ -146,6 +205,8 @@ def load_pack(pack_id: str) -> Pack:
     meta = _read_yaml(path / "sources.yaml")
     if not meta:
         raise FileNotFoundError(f"no pack at {path} (expected sources.yaml); available: {list_packs()}")
+    for problem in check_meta(meta):
+        logging.getLogger("config").warning("%s/sources.yaml: %s", pack_id, problem)
     sources = [
         SourceConfig(
             id=s["id"],

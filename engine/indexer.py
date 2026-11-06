@@ -41,6 +41,43 @@ def index_document(store: Store, tagger: VersionTagger, doc: Document) -> bool:
     return store.upsert(doc, sorted(versions, key=version_key), chunk_markdown(doc.content_md))
 
 
+class ParseHealth:
+    """Notices when a parser quietly stops working: a site changed its layout and documents
+    come out empty, untitled, undated or all with the same title (e.g. a site banner)."""
+    MIN_DOCS = 10
+
+    def __init__(self, source_type: str):
+        self.forum = source_type == "forum"
+        self.n = self.empty = self.untitled = self.undated = self.anonymous = 0
+        self.root_titles: dict[str, int] = {}
+
+    def add(self, doc: Document) -> None:
+        self.n += 1
+        self.empty += len((doc.content_md or "").strip()) < 5
+        self.untitled += not (doc.title or "").strip()
+        self.undated += doc.post_date is None
+        self.anonymous += not (doc.author or doc.author_id)
+        if doc.parent_id is None and doc.title:
+            self.root_titles[doc.title] = self.root_titles.get(doc.title, 0) + 1
+
+    def warnings(self) -> list[str]:
+        if self.n < self.MIN_DOCS:
+            return []
+        out = []
+        for count, what, limit in ((self.empty, "have no content", .2), (self.untitled, "have no title", .2),
+                                   (self.undated, "have no date", .5)):
+            if count / self.n > limit:
+                out.append(f"{count} of {self.n} documents {what}")
+        if self.forum and self.anonymous / self.n > .5:
+            out.append(f"{self.anonymous} of {self.n} forum posts have no author")
+        roots = sum(self.root_titles.values())
+        if roots >= 5:
+            title, count = max(self.root_titles.items(), key=lambda kv: kv[1])
+            if count / roots > .5:
+                out.append(f"{count} of {roots} threads/pages share the title {title[:60]!r}")
+        return out
+
+
 class _MemoryState(dict):
     def set(self, key, value):
         self[key] = value
@@ -75,6 +112,9 @@ def crawl(pack: Pack, source_ids: list[str] | None = None, max_requests: int | N
                 log.warning("%s skipped: %s", src.id, report[src.id]["status"])
                 continue
             parser_cls = load_parser(src.parser, pack.path)
+            from engine.config import check_options
+            for problem in check_options(src, parser_cls):
+                log.warning("%s", problem)
             state = store.state_for(src.id)
             if offline:  # replay from the start, keeping non-position state (API filter ids, profiles)
                 prefixes = getattr(parser_cls, "POSITION_KEY_PREFIXES", ("",))
@@ -92,6 +132,7 @@ def crawl(pack: Pack, source_ids: list[str] | None = None, max_requests: int | N
                 except Exception:  # a partial pre-pass still helps
                     pass
             seen = changed = roots = 0
+            health = ParseHealth(src.source_type)
             status = "complete"
             try:
                 for doc in parser_cls(ctx).crawl():
@@ -101,6 +142,7 @@ def crawl(pack: Pack, source_ids: list[str] | None = None, max_requests: int | N
                             status = f"sampled: first {sample} threads/pages"
                             break
                     seen += 1
+                    health.add(doc)
                     if privacy:
                         privacy.apply(doc, pack.author_mode)
                     changed += index_document(store, tagger, doc)
@@ -122,6 +164,10 @@ def crawl(pack: Pack, source_ids: list[str] | None = None, max_requests: int | N
             store.refresh_top_voted(src.id)
             report[src.id] = {"documents_seen": seen, "new_or_changed": changed,
                               "network_requests": ctx.requests_made, "status": status}
+            if warnings := health.warnings():
+                report[src.id]["parse_warnings"] = warnings
+                for w in warnings:
+                    log.warning("%s: %s (has the site's layout changed?)", src.id, w)
             log.info("%s: %s", src.id, report[src.id])
         if privacy and not offline:   # check what this crawl indexed for anything identifying
             from engine.privacy import audit

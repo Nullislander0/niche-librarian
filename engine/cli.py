@@ -148,6 +148,7 @@ def main(argv: list[str] | None = None) -> None:
     ev.add_argument("--rerank-candidates", type=int, default=20)
     ev.add_argument("--alpha", type=float, default=0.7)
 
+    sub.add_parser("check", parents=[common], help="check the pack's sources.yaml for typos and bad values")
     sub.add_parser("stats", parents=[common], help="index statistics")
     sub.add_parser("sources", parents=[common], help="the pack's sources and how each is accessed")
     o = sub.add_parser("outline", parents=[common], help="what the index covers")
@@ -287,6 +288,18 @@ def main(argv: list[str] | None = None) -> None:
             from engine.indexer import embed_missing, open_store
             store = open_store(pack, reset_embeddings=a.reset)
             print(f"embedded: {embed_missing(store)}")
+        elif a.cmd == "check":
+            from engine.config import _read_yaml, check_meta, check_options
+            from engine.parsers.base import load_parser
+            problems = check_meta(_read_yaml(pack.path / "sources.yaml"))
+            for src in pack.sources:
+                try:
+                    problems += check_options(src, load_parser(src.parser, pack.path))
+                except ImportError as e:
+                    problems.append(f"source {src.id}: no parser named {src.parser!r} ({e})")
+            print("\n".join(problems) or f"{pack.id}: no problems found")
+            if problems:
+                sys.exit(1)
         elif a.cmd == "stats":
             from engine.search import Searcher
             print(json.dumps(Searcher(pack).info(), indent=2))
